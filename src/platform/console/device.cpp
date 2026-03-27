@@ -12,8 +12,17 @@
 #include "common/device.h"
 #include "common/plugins.h"
 #include "common/smbas.h"
+#include "common/keymap.h"
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <termios.h>
+#include <stdlib.h>
 
 #define WAIT_INTERVAL 5
+
+struct winsize consoleSize;
+struct termios termiosOriginal, termiosConsole;
 
 typedef void (*settextcolor_fn)(long fg, long bg);
 typedef void (*setpenmode_fn)(int enable);
@@ -119,6 +128,100 @@ void console_init() {
   p_write = default_write;
 }
 
+void enableTerminalRawMode(void) {
+  tcgetattr(STDIN_FILENO, &termiosConsole);
+  termiosOriginal = termiosConsole;
+  termiosConsole.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  termiosConsole.c_cflag |= (CS8);
+  termiosConsole.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+  //termiosConsole.c_oflag &= ~(OPOST);
+  termiosConsole.c_cc[VMIN] = 0;
+  termiosConsole.c_cc[VTIME] = 0;
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosConsole);
+}
+
+void disableTerminalRawMode(void) {
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOriginal);
+}
+
+// https://viewsourcecode.org/snaptoken/kilo/03.rawInputAndOutput.html
+uint32_t terminalReadKey(void) {
+  int nread;
+  char c;
+  
+  nread = read(STDIN_FILENO, &c, 1);
+  if (nread < 1) {
+    return 0;
+  }
+  if (c == '\x1b') {
+    char seq[4];
+    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+//  printf("\n%c %c\n", seq[0], seq[1]);
+    if (seq[0] == '[') {
+      if (seq[1] >= '0' && seq[1] <= '9') {
+        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+        if (seq[2] == '~') {
+          switch (seq[1]) {
+            case '1': return SB_KEY_HOME;
+            case '3': return SB_KEY_DELETE;
+            case '4': return SB_KEY_END; 
+            case '5': return SB_KEY_PGUP;
+            case '6': return SB_KEY_PGDN;
+            case '7': return SB_KEY_HOME;
+            case '8': return SB_KEY_END;
+          }
+        } else {
+          if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
+          if (seq[3] == '~') {
+//          printf("\n\n\n%c %c %c %c\n", seq[0], seq[1], seq[2], seq[3]);
+            switch (seq[1]) {
+              case '1':
+                switch (seq[2]) {
+                  case '5': return SB_KEY_F(5);
+                  case '7': return SB_KEY_F(6);
+                  case '8': return SB_KEY_F(7);
+                  case '9': return SB_KEY_F(8);
+                }
+                break;
+              case '2':
+                switch (seq[2]) {
+                  case '0': return SB_KEY_F(9);
+                  case '1': return SB_KEY_F(10);
+                  case '2': return SB_KEY_F(11);
+                  case '4': return SB_KEY_F(12);
+                }
+            }
+          }
+        }
+      } else {
+        switch (seq[1]) {
+          case 'A': return SB_KEY_UP; 
+          case 'B': return SB_KEY_DOWN;
+          case 'C': return SB_KEY_RIGHT;
+          case 'D': return SB_KEY_LEFT;
+          case 'H': return SB_KEY_HOME;
+          case 'F': return SB_KEY_END;
+        }
+      }
+    } else if (seq[0] == 'O') {
+      switch (seq[1]) {
+        case 'H': return SB_KEY_HOME;
+        case 'F': return SB_KEY_END;
+        case 'P': return SB_KEY_F(1);
+        case 'Q': return SB_KEY_F(2);
+        case 'R': return SB_KEY_F(3);
+        case 'S': return SB_KEY_F(4);
+      }
+    }
+    return '\x1b';
+  }
+  if (c == 127) {
+    return SB_KEY_BACKSPACE;
+  }
+  return c;
+}
+
 //
 // initialize driver
 //
@@ -150,6 +253,9 @@ int osd_devinit() {
   init_fn devinit = (init_fn)plugin_get_func("sblib_devinit");
   if (devinit) {
     devinit(prog_file, opt_pref_width, opt_pref_height);
+  } else {
+    enableTerminalRawMode();
+    atexit(disableTerminalRawMode);
   }
   os_graf_mx = opt_pref_width;
   os_graf_my = opt_pref_height;
@@ -208,6 +314,19 @@ int osd_devrestore() {
 void osd_settextcolor(long fg, long bg) {
   if (p_settextcolor) {
     p_settextcolor(fg, bg);
+  } else {
+    // VT100: 3bit and 4 bit color
+    if (fg < 8) {
+      fg = 30 + fg;
+    } else {
+      fg = 90 - 8 + fg;
+    }
+    if (bg < 8) {
+      bg = 40 + bg;
+    } else {
+      bg = 100 - 8 + bg;
+    }
+    printf("\033[%ld;%ldm", fg, bg);
   }
 }
 
@@ -239,6 +358,9 @@ int osd_getpen(int code) {
 void osd_cls() {
   if (p_cls) {
     p_cls();
+  } else {
+    // VT100: Move cursor to 1,1 and clear screen from cursor
+    printf("\033[H\033[J");
   }
 }
 
@@ -274,6 +396,8 @@ int osd_gety() {
 void osd_setxy(int x, int y) {
   if (p_setxy) {
     p_setxy(x, y);
+  } else {
+    printf("\033[%d;%dH", x, y);
   }
 }
 
@@ -289,14 +413,40 @@ void osd_write(const char *str) {
 //
 int osd_events(int wait_flag) {
   int result = 0;
+  int x = os_graf_mx;
+  int y = os_graf_my;
+  
   if (p_events) {
-    int x = os_graf_mx;
-    int y = os_graf_my;
     result = p_events(wait_flag, &x, &y);
-    if (x != os_graf_mx || y != os_graf_my) {
-      dev_resize(x, y);
+  } else {
+    switch (wait_flag) {
+    case 1:
+      //glfwWaitEvents();
+      break;
+    case 2:
+      //usleep(WAIT_INTERVAL * 1000);
+      break;
+    default:
+      //glfwPollEvents();
+      break;
+    }
+    // Terminal size
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
+    x = consoleSize.ws_row;
+    y = consoleSize.ws_col;
+
+    // Keypress
+    uint32_t c = terminalReadKey();
+    if (c > 0) {
+      //printf("c=%d\n",c);
+      dev_pushkey(c);
     }
   }
+
+  if (x != os_graf_mx || y != os_graf_my) {
+    dev_resize(x, y);
+  }
+
   return result;
 }
 
@@ -306,6 +456,14 @@ int osd_events(int wait_flag) {
 void osd_setcolor(long color) {
   if (p_setcolor) {
     p_setcolor(color);
+  } else {
+    // VT100: 3bit and 4 bit color
+    if (color < 8) {
+      color = 30 + color;
+    } else {
+      color = 90 - 8 + color;
+    }
+    printf("\033[%ldm", color);
   }
 }
 
@@ -447,13 +605,11 @@ void dev_delay(uint32_t timeout) {
   uint32_t slept;
   uint32_t now = dev_get_millisecond_count();
   while (1) {
-    if (osd_events(0) < 0) {
+    if (osd_events(0) < 0 || timeout == 0) {
       break;
     }
     slept = dev_get_millisecond_count() - now;
-    if (slept > timeout) {
-      break;
-    } else if (timeout - slept > WAIT_INTERVAL) {
+    if (timeout - slept > WAIT_INTERVAL) {
       usleep(WAIT_INTERVAL * 1000);
     } else {
       usleep((timeout - slept) * 1000);

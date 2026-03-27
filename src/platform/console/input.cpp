@@ -11,6 +11,9 @@
 #include "common/device.h"
 #include "common/smbas.h"
 #include "common/keymap.h"
+#include <stdio.h>
+
+uint32_t terminalReadKey(void);
 
 /**
  * return the character (multibyte charsets support)
@@ -146,7 +149,8 @@ char *dev_gets(char *dest, int size) {
   pos = 0;
   do {
     len = strlen(dest);
-    ch = fgetc(stdin);
+    //ch = fgetc(stdin);
+    ch = terminalReadKey();
     switch (ch) {
     case -1:
     case -2:
@@ -198,6 +202,8 @@ char *dev_gets(char *dest, int size) {
     default:
       if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
+        printf("%c",(char)ch);
+        fflush(stdout);
       } else {
         ch = 0;
       }
@@ -209,5 +215,6 @@ char *dev_gets(char *dest, int size) {
     }
   } while (ch != '\n' && ch != '\r');
   dest[len] = '\0';
+  printf("\n");
   return dest;
 }
