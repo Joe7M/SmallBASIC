@@ -1,9 +1,9 @@
 print chr(27) + "[?25l"  ' Hide cursor
 color 15,0
 cls
-delay(1)
 
 ' Get terminal size
+showpage
 print "Console size: "; xmax; "x"; ymax
 
 ' Set foreground and background color
@@ -17,17 +17,24 @@ print
 ' Set cursor position
 at(5,5): print("Position 5,5")
 
+' Get cursor position
+at(6,5): print "Cursor position: "; XPOS; " "; YPOS
 
-' Inkey
+
 ' InkeyTest()
 
-Input "Input test: ", A
-print A
+InputTest()
+
 
 
 print chr(27) + "[?25h"  ' show cursor
 
 '########################################
+
+sub InputTest()
+  Input "Input test: ", A
+  print A
+end
 
 sub InkeyTest()
   const KEY_UP        = chr(27) + chr(9)

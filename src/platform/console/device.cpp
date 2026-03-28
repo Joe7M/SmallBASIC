@@ -13,16 +13,20 @@
 #include "common/plugins.h"
 #include "common/smbas.h"
 #include "common/keymap.h"
-#include <sys/ioctl.h>
 #include <stdio.h>
+#if defined(_UnixOS)
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
+#endif
 
 #define WAIT_INTERVAL 5
 
+#if defined(_UnixOS)
 struct winsize consoleSize;
 struct termios termiosOriginal, termiosConsole;
+#endif
 
 typedef void (*settextcolor_fn)(long fg, long bg);
 typedef void (*setpenmode_fn)(int enable);
@@ -128,6 +132,7 @@ void console_init() {
   p_write = default_write;
 }
 
+#if defined(_UnixOS)
 void enableTerminalRawMode(void) {
   tcgetattr(STDIN_FILENO, &termiosConsole);
   termiosOriginal = termiosConsole;
@@ -142,6 +147,17 @@ void enableTerminalRawMode(void) {
 
 void disableTerminalRawMode(void) {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOriginal);
+}
+
+void initTerminal(void) {
+  enableTerminalRawMode();
+  atexit(disableTerminalRawMode);
+}
+
+void getTerminalSize(int *x, int *y) {
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
+  *x = consoleSize.ws_row;
+  *y = consoleSize.ws_col;
 }
 
 // https://viewsourcecode.org/snaptoken/kilo/03.rawInputAndOutput.html
@@ -222,6 +238,74 @@ uint32_t terminalReadKey(void) {
   return c;
 }
 
+void readKey(void) {
+  uint32_t c = terminalReadKey();
+  if (c > 0) {
+    dev_pushkey(c);
+  }
+}
+
+// https://viewsourcecode.org/snaptoken/kilo/03.rawInputAndOutput.html
+int getCursorPosition(int *rows, int *cols) {
+  char buf[32];
+  unsigned int i = 0;
+
+  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
+
+  while (i < sizeof(buf) - 1) {
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+    if (buf[i] == 'R') break;
+    i++;
+  }
+
+  buf[i] = '\0';
+  if (buf[0] != '\x1b' || buf[1] != '[') return -1;
+  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+
+  return 0;
+}
+
+#else
+#if defined(_Win32)
+void initTerminal(void) {
+    // Enable vt100 support in newer versions of Windows 10 or 11.
+    // If vt100 is not supported fall back to default_write.
+    // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE) {
+      p_write = default_write;
+      return 1;
+    }
+
+    DWORD dwMode = 0;
+    if (!GetConsoleMode(hOut, &dwMode)) {
+      p_write = default_write;
+      return 1;
+    }
+
+    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(hOut, dwMode)) {
+      p_write = default_write;
+      return 1;
+    }
+}
+
+void getTerminalSize(int *x, int *y) {
+  *x = 0;
+  *y = 0;
+}
+
+int getCursorPosition(int *rows, int *cols) {
+  *rows = 0;
+  *cols = 0;
+  return 0;
+}
+
+#endif
+#endif
+
+
 //
 // initialize driver
 //
@@ -254,8 +338,7 @@ int osd_devinit() {
   if (devinit) {
     devinit(prog_file, opt_pref_width, opt_pref_height);
   } else {
-    enableTerminalRawMode();
-    atexit(disableTerminalRawMode);
+    initTerminal();
   }
   os_graf_mx = opt_pref_width;
   os_graf_my = opt_pref_height;
@@ -263,8 +346,6 @@ int osd_devinit() {
   setsysvar_int(SYSVAR_YMAX, os_graf_my);
 
   if (p_write == NULL) {
-    p_write = vt100_write;
-  
     // Test if output is printed in a terminal. If output is piped into
     // a text file or sbasic is running as a cron job, use
     // default_write without vt100 support
@@ -272,30 +353,7 @@ int osd_devinit() {
       p_write = default_write;
       return 1;
     }
-
-    #if defined(_Win32)
-    // Enable vt100 support in newer versions of Windows 10 or 11.
-    // If vt100 is not supported fall back to default_write.
-    // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
-
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut == INVALID_HANDLE_VALUE) {
-      p_write = default_write;
-      return 1;
-    }
-
-    DWORD dwMode = 0;
-    if (!GetConsoleMode(hOut, &dwMode)) {
-      p_write = default_write;
-      return 1;
-    }
-
-    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    if (!SetConsoleMode(hOut, dwMode)) {
-      p_write = default_write;
-      return 1;
-    }
-    #endif
+    p_write = vt100_write;
   }
   return 1;
 }
@@ -372,7 +430,9 @@ int osd_getx() {
   if (p_getx) {
     result = p_getx();
   } else {
-    result = 0;
+    int cols = 0, rows = 0;
+    getCursorPosition(&rows, &cols);
+    result = cols;
   }
   return result;
 }
@@ -385,7 +445,9 @@ int osd_gety() {
   if (p_gety) {
     result = p_gety();
   } else {
-    result = 0;
+    int cols = 0, rows = 0;
+    getCursorPosition(&rows, &cols);
+    result = rows;
   }
   return result;
 }
@@ -430,17 +492,9 @@ int osd_events(int wait_flag) {
       //glfwPollEvents();
       break;
     }
-    // Terminal size
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
-    x = consoleSize.ws_row;
-    y = consoleSize.ws_col;
 
-    // Keypress
-    uint32_t c = terminalReadKey();
-    if (c > 0) {
-      //printf("c=%d\n",c);
-      dev_pushkey(c);
-    }
+    getTerminalSize(&x, &y);    // XMAX, YMAX
+    readKey();                  // INKEY
   }
 
   if (x != os_graf_mx || y != os_graf_my) {
@@ -531,6 +585,9 @@ void osd_rect(int x1, int y1, int x2, int y2, int fill) {
 void osd_refresh() {
   if (p_refresh) {
     p_refresh();
+  } else {
+    osd_events(0);
+    fflush(stdout);
   }
 }
 
@@ -617,6 +674,12 @@ void dev_delay(uint32_t timeout) {
     }
   }
 }
+//
+// update terminal size and flush stdout
+//
+void dev_show_page() {
+  osd_refresh();
+}
 
 //
 // unused
@@ -624,4 +687,4 @@ void dev_delay(uint32_t timeout) {
 void dev_log_stack(const char *keyword, int type, int line) {}
 void v_create_form(var_p_t var) {}
 void v_create_window(var_p_t var) {}
-void dev_show_page() {}
+
