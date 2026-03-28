@@ -251,7 +251,8 @@ int getCursorPosition(int *rows, int *cols) {
   unsigned int i = 0;
 
   if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
-
+  usleep(100);
+  
   while (i < sizeof(buf) - 1) {
     if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
     if (buf[i] == 'R') break;
@@ -385,6 +386,7 @@ void osd_settextcolor(long fg, long bg) {
       bg = 100 - 8 + bg;
     }
     printf("\033[%ld;%ldm", fg, bg);
+    fflush(stdout);
   }
 }
 
@@ -419,6 +421,7 @@ void osd_cls() {
   } else {
     // VT100: Move cursor to 1,1 and clear screen from cursor
     printf("\033[H\033[J");
+    fflush(stdout);
   }
 }
 
@@ -460,6 +463,7 @@ void osd_setxy(int x, int y) {
     p_setxy(x, y);
   } else {
     printf("\033[%d;%dH", x, y);
+    fflush(stdout);
   }
 }
 

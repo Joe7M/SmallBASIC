@@ -18,12 +18,14 @@ print
 at(5,5): print("Position 5,5")
 
 ' Get cursor position
-at(6,5): print "Cursor position: "; XPOS; " "; YPOS
+at(2,4)
+x = XPOS
+y = YPOS
+at (6,0): print "Cursor position: "; x; " "; y
 
 
 ' InkeyTest()
-
-InputTest()
+' InputTest()
 
 
 
