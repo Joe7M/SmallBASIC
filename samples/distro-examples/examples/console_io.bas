@@ -1,37 +1,49 @@
 print chr(27) + "[?25l"  ' Hide cursor
-color 15,0
-cls
 
-' Get terminal size
-showpage
-print "Console size: "; xmax; "x"; ymax
-
-' Set foreground and background color
-print "Color test: ";
-for i = 0 to 15
-  color i, 15-i
-  print i;
-next
-print
-
-' Set cursor position
-at(5,5): print("Position 5,5")
-
-' Get cursor position
-at(2,4)
-x = XPOS
-y = YPOS
-at (6,0): print "Cursor position: "; x; " "; y
-
-
-' InkeyTest()
-' InputTest()
-
-
+ClsTest()
+'GetTerminalSizeTest()
+'SetColorTest()
+'SetCursorPositionTest()
+'GetCursorPositionTest()
+InkeyTest()
+'InputTest()
 
 print chr(27) + "[?25h"  ' show cursor
 
 '########################################
+
+sub ClsTest()
+  color 15,0
+  cls
+  showpage()
+end
+  
+sub GetTerminalSizeTest()
+  ' Get terminal size
+  showpage
+  print "Console size: "; xmax; "x"; ymax
+end
+
+sub SetColorTest()
+  ' Set foreground and background color
+  print "Color test: ";
+  for i = 0 to 15
+    color i, 15-i
+    print i;
+  next
+  print
+end
+
+sub SetCursorPositionTest()
+  at(5,9): print("x -> Position row 5, col 9")
+end
+
+sub GetCursorPositionTest()
+  at(2,4)
+  x = XPOS
+  y = YPOS
+  at (6,0): print "Cursor position: "; x; " "; y
+end
 
 sub InputTest()
   Input "Input test: ", A
@@ -67,9 +79,12 @@ sub InkeyTest()
   const KEY_F12       = chr(27) + chr(252)
   def CtrlKey(k) = chr(k BAND 0x1F)
   const KEY_CTRL_A    = CtrlKey(asc("a"))
+  
 
-  at(6,1): print "INKEY test. Press q to exit"
+  at(7,1): print "INKEY test. Press q to exit"
   repeat
+    i++
+    at(8,1): print i    
     k = inkey()
     if len(k)
       select case k
@@ -103,9 +118,10 @@ sub InkeyTest()
           case "q":           running = 1
           case else:          s = k
       end select
-      at(7,1): print s; "                         ";
+      at(8,7): print s; "                         ";
     endif
     delay(10)
   until(running)
+  print " "
 end
 

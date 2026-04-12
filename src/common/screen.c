@@ -177,11 +177,12 @@ int dev_textheight(const char *str) {
 // changes the current foreground color
 //
 void dev_setcolor(long color) {
-  if (color <= 15 && color >= 0) {
+  /*if (color <= 15 && color >= 0) {
     osd_setcolor(dev_fgcolor = color);
   } else if (color < 0) {
     osd_setcolor((dev_fgcolor = color));
-  }
+  }*/
+  osd_setcolor(dev_fgcolor = color);
 }
 
 //
@@ -272,7 +273,7 @@ void dev_clipline(int *x1, int *y1, int *x2, int *y2, int *visible) {
 // draw line
 //
 void dev_line(int x1, int y1, int x2, int y2) {
-  int visible;
+  int visible = 1;
 
   W2D4(x1, y1, x2, y2);
 

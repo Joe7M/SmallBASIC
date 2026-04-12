@@ -160,6 +160,8 @@ src/platform/console/Makefile.am                             \
 src/platform/console/Makefile.in                             \
 src/platform/console/decomp.c                                \
 src/platform/console/device.cpp                              \
+src/platform/console/graphics.cpp                            \
+src/platform/console/terminal.h                              \
 src/platform/console/image.cpp                               \
 src/platform/console/input.cpp                               \
 src/platform/console/io.github.smallbasic.appdata.xml        \

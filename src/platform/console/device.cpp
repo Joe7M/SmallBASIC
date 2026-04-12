@@ -7,6 +7,9 @@
 // Download the GNU Public License (GPL) from www.gnu.org
 //
 
+// Thanks to: https://viewsourcecode.org/snaptoken/kilo
+//            https://en.wikipedia.org/wiki/ANSI_escape_code
+
 #include "config.h"
 #include "include/osd.h"
 #include "common/device.h"
@@ -14,7 +17,9 @@
 #include "common/smbas.h"
 #include "common/keymap.h"
 #include <stdio.h>
-#if defined(_UnixOS)
+#include "terminal.h"
+
+#if USE_TERM_IO
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <termios.h>
@@ -23,7 +28,7 @@
 
 #define WAIT_INTERVAL 5
 
-#if defined(_UnixOS)
+#if USE_TERM_IO
 struct winsize consoleSize;
 struct termios termiosOriginal, termiosConsole;
 #endif
@@ -77,6 +82,9 @@ static audio_fn p_audio;
 static textwidth_fn p_textwidth;
 static textheight_fn p_textheight;
 
+extern long foregroundColor;
+extern long backgroundColor;
+
 int get_escape(const char *str, int begin, int end) {
   int result = 0;
   for (int i = begin; i < end; i++) {
@@ -120,6 +128,19 @@ void default_write(const char *str) {
   fflush(stdout);
 }
 
+long convertColor(long color) {
+  float r = ((float)((-color & 0xff0000) >> 16)) / 255.0;
+  float g = ((float)((-color & 0xff00) >> 8)) / 255.0;
+  float b = ((float)(-color & 0xff)) / 255.0;
+  
+  // gray scale
+  if (r == g && r == b && g == b) {
+    return (232 + (long)round(23.0*r));
+  }
+  
+  return (16 + (long)round((36.0 * 5.0*r + 6 * 5.0*g + 5.0*b)));
+}
+
 //
 // console output if vt100 (esc sequences) is supported
 //
@@ -132,14 +153,14 @@ void console_init() {
   p_write = default_write;
 }
 
-#if defined(_UnixOS)
+#if USE_TERM_IO
 void enableTerminalRawMode(void) {
   tcgetattr(STDIN_FILENO, &termiosConsole);
   termiosOriginal = termiosConsole;
   termiosConsole.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
   termiosConsole.c_cflag |= (CS8);
   termiosConsole.c_lflag &= ~(ECHO | ICANON | IEXTEN);
-  //termiosConsole.c_oflag &= ~(OPOST);
+  //termiosConsole.c_oflag &= ~(OPOST);   // turns off post processing \n -> \n\r
   termiosConsole.c_cc[VMIN] = 0;
   termiosConsole.c_cc[VTIME] = 0;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosConsole);
@@ -156,140 +177,125 @@ void initTerminal(void) {
 
 void getTerminalSize(int *x, int *y) {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
-  *x = consoleSize.ws_row;
-  *y = consoleSize.ws_col;
+  *x = consoleSize.ws_col;
+  *y = consoleSize.ws_row;
 }
 
-// https://viewsourcecode.org/snaptoken/kilo/03.rawInputAndOutput.html
-uint32_t terminalReadKey(void) {
-  int nread;
-  char c;
-  
-  nread = read(STDIN_FILENO, &c, 1);
-  if (nread < 1) {
-    return 0;
-  }
-  if (c == '\x1b') {
-    char seq[4];
-    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-//  printf("\n%c %c\n", seq[0], seq[1]);
-    if (seq[0] == '[') {
-      if (seq[1] >= '0' && seq[1] <= '9') {
-        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-        if (seq[2] == '~') {
-          switch (seq[1]) {
-            case '1': return SB_KEY_HOME;
-            case '3': return SB_KEY_DELETE;
-            case '4': return SB_KEY_END; 
-            case '5': return SB_KEY_PGUP;
-            case '6': return SB_KEY_PGDN;
-            case '7': return SB_KEY_HOME;
-            case '8': return SB_KEY_END;
-          }
-        } else {
-          if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
-          if (seq[3] == '~') {
-//          printf("\n\n\n%c %c %c %c\n", seq[0], seq[1], seq[2], seq[3]);
-            switch (seq[1]) {
-              case '1':
-                switch (seq[2]) {
-                  case '5': return SB_KEY_F(5);
-                  case '7': return SB_KEY_F(6);
-                  case '8': return SB_KEY_F(7);
-                  case '9': return SB_KEY_F(8);
-                }
-                break;
-              case '2':
-                switch (seq[2]) {
-                  case '0': return SB_KEY_F(9);
-                  case '1': return SB_KEY_F(10);
-                  case '2': return SB_KEY_F(11);
-                  case '4': return SB_KEY_F(12);
-                }
-            }
-          }
-        }
-      } else {
-        switch (seq[1]) {
-          case 'A': return SB_KEY_UP; 
-          case 'B': return SB_KEY_DOWN;
-          case 'C': return SB_KEY_RIGHT;
-          case 'D': return SB_KEY_LEFT;
-          case 'H': return SB_KEY_HOME;
-          case 'F': return SB_KEY_END;
-        }
-      }
-    } else if (seq[0] == 'O') {
-      switch (seq[1]) {
-        case 'H': return SB_KEY_HOME;
-        case 'F': return SB_KEY_END;
-        case 'P': return SB_KEY_F(1);
-        case 'Q': return SB_KEY_F(2);
-        case 'R': return SB_KEY_F(3);
-        case 'S': return SB_KEY_F(4);
-      }
-    }
-    return '\x1b';
-  }
-  if (c == 127) {
-    return SB_KEY_BACKSPACE;
-  }
-  return c;
-}
-
-void readKey(void) {
-  uint32_t c = terminalReadKey();
-  if (c > 0) {
-    dev_pushkey(c);
-  }
-}
-
-// https://viewsourcecode.org/snaptoken/kilo/03.rawInputAndOutput.html
 int getCursorPosition(int *rows, int *cols) {
   char buf[32];
   unsigned int i = 0;
-
-  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
-  usleep(100);
+  long int startTime;
   
+  *rows = 0;
+  *cols = 0;
+  
+  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) {
+    return -1;
+  }
+  // There might be a slight delay between write() and the
+  // response from the terminal printing the escape sequence.
+  // Therfore we try to read several times until either the
+  // timeout is reached or the 'R' letter is printed
+  startTime = dev_get_millisecond_count();
   while (i < sizeof(buf) - 1) {
-    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
-    if (buf[i] == 'R') break;
+    if (dev_get_millisecond_count() - startTime > 50) {
+      return -1;
+    } 
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) {
+      continue;
+    }
+    if (buf[i] == 'R') {
+      break;
+    }
     i++;
   }
 
   buf[i] = '\0';
-  if (buf[0] != '\x1b' || buf[1] != '[') return -1;
-  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+  if (buf[0] != '\x1b' || buf[1] != '[') {
+    return -1;
+  }
+  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) {
+    *rows = 0;
+    *cols = 0;
+    return -1;
+  }
 
   return 0;
 }
 
-#else
-#if defined(_Win32)
+void clearScreen(void) {
+  // VT100: Move cursor to 1,1 and clear screen from cursor
+  printf("\033[H\033[J");
+  fflush(stdout);
+}
+
+void setTextColor(long fg, long bg) {
+  // VT100: 3bit and 4 bit color
+  /*if (fg < 8) {
+    fg = 30 + fg;
+  } else {
+    fg = 90 - 8 + fg;
+  }
+  if (bg < 8) {
+    bg = 40 + bg;
+  } else {
+    bg = 100 - 8 + bg;
+  }
+  printf("\033[%ld;%ldm", fg, bg);
+  */
+  
+  //VT100: 8bit color mode
+  if (fg >= 0) {
+    fg = fg & 0xFF;
+  } else {
+    fg = convertColor(fg);
+  }
+  if (bg >= 0) {
+    bg = bg & 0xFF;
+  } else { 
+    bg = convertColor(bg);
+  }
+  printf("\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
+  fflush(stdout);
+}
+
+void setCursorPosition(int row, int col) {
+  printf("\033[%d;%dH", row, col);
+  fflush(stdout);
+}
+
+// Bit 0 to 7 is drawing color
+// Bit 8 to 15 is drawing character
+void setForegroundColor(long fg) {
+  setDrawingCharacter(fg);
+  //VT100: 8bit color mode
+  printf("\033[48;5;%ldm", fg & 0xFF);   // set background color
+  fflush(stdout);  
+}
+
+#elif defined (_Win32)
 void initTerminal(void) {
-    // Enable vt100 support in newer versions of Windows 10 or 11.
-    // If vt100 is not supported fall back to default_write.
-    // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+  // Enable vt100 support in newer versions of Windows 10 or 11.
+  // If vt100 is not supported fall back to default_write.
+  // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
 
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut == INVALID_HANDLE_VALUE) {
-      p_write = default_write;
-      return 1;
-    }
+  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (hOut == INVALID_HANDLE_VALUE) {
+    p_write = default_write;
+    return 1;
+  }
 
-    DWORD dwMode = 0;
-    if (!GetConsoleMode(hOut, &dwMode)) {
-      p_write = default_write;
-      return 1;
-    }
+  DWORD dwMode = 0;
+  if (!GetConsoleMode(hOut, &dwMode)) {
+    p_write = default_write;
+    return 1;
+  }
 
-    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    if (!SetConsoleMode(hOut, dwMode)) {
-      p_write = default_write;
-      return 1;
-    }
+  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  if (!SetConsoleMode(hOut, dwMode)) {
+    p_write = default_write;
+    return 1;
+  }
 }
 
 void getTerminalSize(int *x, int *y) {
@@ -303,9 +309,66 @@ int getCursorPosition(int *rows, int *cols) {
   return 0;
 }
 
-#endif
+void clearScreen(void) {
+  // VT100: Move cursor to 1,1 and clear screen from cursor
+  printf("\033[H\033[J");
+  fflush(stdout);
+}
+
+void setTextColor(long fg, long bg) {
+  // VT100: 3bit and 4 bit color
+  if (fg < 8) {
+    fg = 30 + fg;
+  } else {
+    fg = 90 - 8 + fg;
+  }
+  if (bg < 8) {
+    bg = 40 + bg;
+  } else {
+    bg = 100 - 8 + bg;
+  }
+  printf("\033[%ld;%ldm", fg, bg);
+  fflush(stdout);
+}
+
+void setCursorPosition(int x, int y) {
+  printf("\033[%d;%dH", x, y);
+  fflush(stdout);
+}
+
+void setForegroundColor(long color) {
+  // VT100: 3bit and 4 bit color
+  if (color < 8) {
+    color = 30 + color;
+  } else {
+    color = 90 - 8 + color;
+  }
+  printf("\033[%ldm", color);
+}
+#else
+void initTerminal(void) {}
+void clearScreen(void) {}
+void setTextColor(long fg, long bg) {}
+void setCursorPosition(int x, int y) {}
+void setForegroundColor(long color) {}
+void getTerminalSize(int *x, int *y) {
+  *x = 0;
+  *y = 0;
+}
+int getCursorPosition(int *rows, int *cols) {
+  *rows = 0;
+  *cols = 0;
+  return 0;
+}
 #endif
 
+void readKey(void) {
+  uint32_t c = terminalReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
 
 //
 // initialize driver
@@ -369,24 +432,15 @@ int osd_devrestore() {
 //
 // set foreground and background color
 // a value of -1 means not change that color
+// called by COLOR keyword
 //
 void osd_settextcolor(long fg, long bg) {
   if (p_settextcolor) {
     p_settextcolor(fg, bg);
   } else {
-    // VT100: 3bit and 4 bit color
-    if (fg < 8) {
-      fg = 30 + fg;
-    } else {
-      fg = 90 - 8 + fg;
-    }
-    if (bg < 8) {
-      bg = 40 + bg;
-    } else {
-      bg = 100 - 8 + bg;
-    }
-    printf("\033[%ld;%ldm", fg, bg);
-    fflush(stdout);
+    setTextColor(fg, bg);
+    foregroundColor = fg;
+    backgroundColor = bg;
   }
 }
 
@@ -419,9 +473,7 @@ void osd_cls() {
   if (p_cls) {
     p_cls();
   } else {
-    // VT100: Move cursor to 1,1 and clear screen from cursor
-    printf("\033[H\033[J");
-    fflush(stdout);
+    clearScreen();
   }
 }
 
@@ -462,8 +514,7 @@ void osd_setxy(int x, int y) {
   if (p_setxy) {
     p_setxy(x, y);
   } else {
-    printf("\033[%d;%dH", x, y);
-    fflush(stdout);
+    setCursorPosition(x, y);
   }
 }
 
@@ -487,13 +538,13 @@ int osd_events(int wait_flag) {
   } else {
     switch (wait_flag) {
     case 1:
-      //glfwWaitEvents();
+      //Wait for events
       break;
     case 2:
-      //usleep(WAIT_INTERVAL * 1000);
+      usleep(WAIT_INTERVAL * 1000);
       break;
     default:
-      //glfwPollEvents();
+      //poll events();
       break;
     }
 
@@ -509,19 +560,14 @@ int osd_events(int wait_flag) {
 }
 
 //
-// sets foreground color
+// sets foreground color for drawing routines like LINE or RECT
 //
 void osd_setcolor(long color) {
   if (p_setcolor) {
     p_setcolor(color);
   } else {
-    // VT100: 3bit and 4 bit color
-    if (color < 8) {
-      color = 30 + color;
-    } else {
-      color = 90 - 8 + color;
-    }
-    printf("\033[%ldm", color);
+    setForegroundColor(color);
+    foregroundColor = color;
   }
 }
 
@@ -531,6 +577,8 @@ void osd_setcolor(long color) {
 void osd_line(int x1, int y1, int x2, int y2) {
   if (p_line) {
     p_line(x1, y1, x2, y2);
+  } else {
+    drawLine(x1, y1, x2, y2);
   }
 }
 
@@ -558,6 +606,8 @@ void osd_arc(int xc, int yc, double r, double as, double ae, double aspect) {
 void osd_setpixel(int x, int y) {
   if (p_setpixel) {
     p_setpixel(x, y);
+  } else {
+    drawPoint(x, y);
   }
 }
 
@@ -580,6 +630,8 @@ long osd_getpixel(int x, int y) {
 void osd_rect(int x1, int y1, int x2, int y2, int fill) {
   if (p_rect) {
     p_rect(x1, y1, x2, y2, fill);
+  } else {
+    drawRect(x1, y1, x2, y2, fill);
   }
 }
 

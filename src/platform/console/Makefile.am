@@ -11,11 +11,13 @@ bin_PROGRAMS = sbasic
 
 sbasic_SOURCES =    \
   ../../lib/lodepng/lodepng.cpp ../../lib/lodepng/lodepng.h \
-  main.cpp	\
+  main.cpp \
   input.cpp \
   device.cpp \
   image.cpp \
-  decomp.c
+  decomp.c \
+  graphics.cpp \
+  terminal.h
 
 sbasic_LDADD = -L$(top_srcdir)/src/common -lsb_common @PACKAGE_LIBS@
 
@@ -32,7 +34,7 @@ desktop_DATA = io.github.smallbasic.desktop
 
 TEST_DIR=../../../samples/distro-examples/tests
 UNIT_TESTS=array break byref eval-test iifs matrices metaa ongoto \
-	         uds hash pass1 call_tau short-circuit strings stack-test \
+           uds hash pass1 call_tau short-circuit strings stack-test \
            replace-test read-data proc optchk letbug ptr ref input \
            trycatch chain stream-files split-join sprint all scope \
            goto keymap socket-io

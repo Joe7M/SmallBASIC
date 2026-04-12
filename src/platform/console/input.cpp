@@ -12,8 +12,102 @@
 #include "common/smbas.h"
 #include "common/keymap.h"
 #include <stdio.h>
+#include "terminal.h"
 
-uint32_t terminalReadKey(void);
+#if defined(USE_TERM_IO)
+uint32_t terminalReadKey(void) {
+  int nread;
+  char c;
+  
+  nread = read(STDIN_FILENO, &c, 1);
+  if (nread < 1) {
+    return 0;
+  }
+  if (c == '\x1b') {
+    char seq[4];
+    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+    printf("\n%c %c\n", seq[0], seq[1]);
+    if (seq[0] == '[') {
+      if (seq[1] >= '0' && seq[1] <= '9') {
+        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+        if (seq[2] == '~') {
+          switch (seq[1]) {
+            case '1': return SB_KEY_HOME;
+            case '3': return SB_KEY_DELETE;
+            case '4': return SB_KEY_END; 
+            case '5': return SB_KEY_PGUP;
+            case '6': return SB_KEY_PGDN;
+            case '7': return SB_KEY_HOME;
+            case '8': return SB_KEY_END;
+          }
+        } else {
+          if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
+          if (seq[3] == '~') {
+//          printf("\n\n\n%c %c %c %c\n", seq[0], seq[1], seq[2], seq[3]);
+            switch (seq[1]) {
+              case '1':
+                switch (seq[2]) {
+                  case '5': return SB_KEY_F(5);
+                  case '7': return SB_KEY_F(6);
+                  case '8': return SB_KEY_F(7);
+                  case '9': return SB_KEY_F(8);
+                }
+                break;
+              case '2':
+                switch (seq[2]) {
+                  case '0': return SB_KEY_F(9);
+                  case '1': return SB_KEY_F(10);
+                  case '2': return SB_KEY_F(11);
+                  case '4': return SB_KEY_F(12);
+                }
+            }
+          }
+        }
+      } else {
+        switch (seq[1]) {
+          case 'A': return SB_KEY_UP; 
+          case 'B': return SB_KEY_DOWN;
+          case 'C': return SB_KEY_RIGHT;
+          case 'D': return SB_KEY_LEFT;
+          case 'H': return SB_KEY_HOME;
+          case 'F': return SB_KEY_END;
+          case 'M': return SB_KEY_MK_PUSH;
+        }
+      }
+    } else if (seq[0] == 'O') {
+      switch (seq[1]) {
+        case 'H': return SB_KEY_HOME;
+        case 'F': return SB_KEY_END;
+        case 'P': return SB_KEY_F(1);
+        case 'Q': return SB_KEY_F(2);
+        case 'R': return SB_KEY_F(3);
+        case 'S': return SB_KEY_F(4);
+      }
+    }
+    return '\x1b';
+  }
+  if (c == 127) {
+    return SB_KEY_BACKSPACE;
+  }
+  return c;
+}
+long int getCharacter(void) {
+  return terminalReadKey();
+}
+#elif defined (_Win32)
+uint32_t terminalReadKey(void) {
+  return 0;
+}
+
+long int getCharacter(void) {
+  return fgetc(stdin);
+}
+#else
+long int getCharacter(void) {
+  return fgetc(stdin);
+}
+#endif
 
 /**
  * return the character (multibyte charsets support)
@@ -149,8 +243,7 @@ char *dev_gets(char *dest, int size) {
   pos = 0;
   do {
     len = strlen(dest);
-    //ch = fgetc(stdin);
-    ch = terminalReadKey();
+    ch = getCharacter();
     switch (ch) {
     case -1:
     case -2:
@@ -202,8 +295,10 @@ char *dev_gets(char *dest, int size) {
     default:
       if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
+#if USE_TERM_IO        
         printf("%c",(char)ch);
         fflush(stdout);
+#endif
       } else {
         ch = 0;
       }
@@ -215,6 +310,8 @@ char *dev_gets(char *dest, int size) {
     }
   } while (ch != '\n' && ch != '\r');
   dest[len] = '\0';
+#if USE_TERM_IO
   printf("\n");
+#endif
   return dest;
 }
