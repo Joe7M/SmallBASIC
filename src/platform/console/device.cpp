@@ -7,8 +7,9 @@
 // Download the GNU Public License (GPL) from www.gnu.org
 //
 
-// Thanks to: https://viewsourcecode.org/snaptoken/kilo
-//            https://en.wikipedia.org/wiki/ANSI_escape_code
+// Thanks to: https://viewsourcecode.org/snaptoken/kilo        -> Linux RAW mode
+//            https://en.wikipedia.org/wiki/ANSI_escape_code   -> Escape codes
+//            https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking  -> Mouse in terminal
 
 #include "config.h"
 #include "include/osd.h"
@@ -84,6 +85,9 @@ static textheight_fn p_textheight;
 
 extern long foregroundColor;
 extern long backgroundColor;
+extern int lastMouseX;
+extern int lastMouseY;
+extern int lastMouseButton;
 
 int get_escape(const char *str, int begin, int end) {
   int result = 0;
@@ -173,6 +177,7 @@ void disableTerminalRawMode(void) {
 void initTerminal(void) {
   enableTerminalRawMode();
   atexit(disableTerminalRawMode);
+  os_graphics = 1;
 }
 
 void getTerminalSize(int *x, int *y) {
@@ -450,6 +455,8 @@ void osd_settextcolor(long fg, long bg) {
 void osd_setpenmode(int enable) {
   if (p_setpenmode) {
     p_setpenmode(enable);
+  } else {
+    setMouse(enable);
   }
 }
 
@@ -461,7 +468,7 @@ int osd_getpen(int code) {
   if (p_getpen) {
     result = p_getpen(code);
   } else {
-    result = 0;
+    result = getMouse(code);
   }
   return result;
 }

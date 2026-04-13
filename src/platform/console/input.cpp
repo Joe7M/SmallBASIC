@@ -14,6 +14,13 @@
 #include <stdio.h>
 #include "terminal.h"
 
+int mouseX = 0;
+int mouseY = 0;
+int mouseButton = 3;
+int mouseLastButtonX = 0;
+int mouseLastButtonY = 0;
+int mouseEvent = 0;
+
 #if defined(USE_TERM_IO)
 uint32_t terminalReadKey(void) {
   int nread;
@@ -24,10 +31,10 @@ uint32_t terminalReadKey(void) {
     return 0;
   }
   if (c == '\x1b') {
-    char seq[4];
+    unsigned char seq[4];
     if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
     if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-    printf("\n%c %c\n", seq[0], seq[1]);
+//    printf("\n%c %c\n", seq[0], seq[1]);
     if (seq[0] == '[') {
       if (seq[1] >= '0' && seq[1] <= '9') {
         if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
@@ -72,7 +79,18 @@ uint32_t terminalReadKey(void) {
           case 'D': return SB_KEY_LEFT;
           case 'H': return SB_KEY_HOME;
           case 'F': return SB_KEY_END;
-          case 'M': return SB_KEY_MK_PUSH;
+          case 'M': // Mouse event
+            if (read(STDIN_FILENO, &seq, 3) != 3) return '\x1b';
+            mouseEvent = 1;
+            mouseX = seq[1] - 32;
+            mouseY = seq[2] - 32;
+            if ((mouseButton & 3) != 0 && (seq[0] & 3) == 0) {
+              mouseLastButtonX = mouseX;
+              mouseLastButtonY = mouseY;
+            }
+            mouseButton = seq[0];
+//          printf("%d %d %d\n", seq[0], seq[1], seq[2]);
+            return 0;
         }
       }
     } else if (seq[0] == 'O') {
@@ -95,6 +113,53 @@ uint32_t terminalReadKey(void) {
 long int getCharacter(void) {
   return terminalReadKey();
 }
+
+void setMouse(int enable) {
+  if (enable) {
+    printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
+  } else {
+    printf("\x1b[?1003l");    // disable "All Motion Mouse Tracking"
+  }
+}
+
+int getMouse(int code) {
+  switch(code) {
+    case 0:                 // new mouse event
+      if (mouseEvent) {
+        mouseEvent = 0;
+        return (1);
+      }
+      return (0);
+    case 1:                 // last mouse button down x
+      return mouseLastButtonX;
+    case 2:                 // last mouse button down y
+      return mouseLastButtonY;
+    case 3:                 // True if mouse left button is pressed
+      return ((mouseButton & 3) == 0);
+    case 4:                 // last mouse x if left button is pressed
+      if ((mouseButton & 3) == 0) {
+        return (mouseX);
+      }
+      return 0;
+    case 5:                 //last mouse y if left button is pressed
+      if  ((mouseButton & 3) == 0) {
+        return (mouseY);
+      }
+      return 0;
+    case 10:                // current mouse x position
+      return mouseX;
+    case 11:                // current mouse y pos
+      return mouseY;
+    case 12:                // true if the left mouse button is pressed
+      return ((mouseButton & 3) == 0);
+    case 13:                // true if the right mouse button is pressed
+      return ((mouseButton & 3) == 2);
+    case 14:                // true if the middle mouse button is pressed
+      return ((mouseButton & 3) == 1);
+  }
+  return (0);
+}
+
 #elif defined (_Win32)
 uint32_t terminalReadKey(void) {
   return 0;
@@ -103,9 +168,22 @@ uint32_t terminalReadKey(void) {
 long int getCharacter(void) {
   return fgetc(stdin);
 }
+
+void setMouse(int enable) {}
+int getMouse(int code) {
+  return 0;
+}
 #else
+uint32_t terminalReadKey(void) {
+  return 0;
+}
+
 long int getCharacter(void) {
   return fgetc(stdin);
+}
+
+int getMouse(int code) {
+  return 0;
 }
 #endif
 
