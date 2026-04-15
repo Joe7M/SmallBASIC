@@ -15,6 +15,7 @@ char drawingCharacter = ' ';
 long foregroundColor = 15;
 long backgroundColor = 0;
 
+
 // Bit 0 to 7 is drawing color
 // Bit 8 to 15 is drawing character
 void setDrawingCharacter(long color) {
@@ -24,7 +25,7 @@ void setDrawingCharacter(long color) {
   }
 }
 
-void drawPoint(int x, int y) {
+void point(int x, int y) {
   setTextColor(backgroundColor, foregroundColor);
   setCursorPosition(y, x);
   printf("%c", drawingCharacter);
@@ -49,7 +50,7 @@ void fastVLine(int x, int y, int h) {
   setTextColor(foregroundColor, backgroundColor);
 }
 
-void drawLine(int x0, int y0, int x1, int y1) {
+void line(int x0, int y0, int x1, int y1) {
   int steep;
   int ystep;
   int dx, dy;
@@ -121,7 +122,7 @@ void drawLine(int x0, int y0, int x1, int y1) {
   setTextColor(foregroundColor, backgroundColor);
 }
 
-void drawRect(int x1, int y1, int x2, int y2, int fill) {
+void rect(int x1, int y1, int x2, int y2, int fill) {
   if (x2 < x1) {
     swap(x1, x2);
   }
@@ -144,3 +145,26 @@ void drawRect(int x1, int y1, int x2, int y2, int fill) {
     fastVLine(x1 + w - 1, y1, h);
   }
 }
+
+#if USE_TERM_IO
+void drawPoint(int x, int y) {
+  point(x, y);
+}
+
+void drawLine(int x0, int y0, int x1 , int y1) {
+  line(x0, y0, x1, y1);
+}
+
+void drawRect(int x0, int y0, int x1, int y1, int fill) {
+  rect(x0, y0, x1, y1, fill); 
+}
+#elif defined (_Win32)
+void drawPoint(int x, int y) {}
+void drawLine(int x0, int y0, int x1, int y1) {}
+void drawRect(int x0, int y0, int x1, int y1, int fill) {}
+#else
+void drawPoint(int x, int y) {}
+void drawLine(int x0, int y0, int x1, int y1) {}
+void drawRect(int x0, int y0, int x1, int y1, int fill) {}
+#endif
+

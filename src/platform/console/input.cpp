@@ -17,8 +17,8 @@
 int mouseX = 0;
 int mouseY = 0;
 int mouseButton = 3;
-int mouseLastButtonX = 0;
-int mouseLastButtonY = 0;
+int mouseLastButtonX = -1;
+int mouseLastButtonY = -1;
 int mouseEvent = 0;
 
 #if defined(USE_TERM_IO)
@@ -125,10 +125,10 @@ void setMouse(int enable) {
 int getMouse(int code) {
   switch(code) {
     case 0:                 // new mouse event
-      if (mouseEvent) {
-        mouseEvent = 0;
+      if (mouseEvent && (mouseButton & 3) == 0) {
         return (1);
       }
+      mouseEvent = 0;
       return (0);
     case 1:                 // last mouse button down x
       return mouseLastButtonX;
@@ -140,12 +140,12 @@ int getMouse(int code) {
       if ((mouseButton & 3) == 0) {
         return (mouseX);
       }
-      return 0;
+      return -1;
     case 5:                 //last mouse y if left button is pressed
       if  ((mouseButton & 3) == 0) {
         return (mouseY);
       }
-      return 0;
+      return -1;
     case 10:                // current mouse x position
       return mouseX;
     case 11:                // current mouse y pos

@@ -543,16 +543,8 @@ int osd_events(int wait_flag) {
   if (p_events) {
     result = p_events(wait_flag, &x, &y);
   } else {
-    switch (wait_flag) {
-    case 1:
-      //Wait for events
-      break;
-    case 2:
+    if (wait_flag) {
       usleep(WAIT_INTERVAL * 1000);
-      break;
-    default:
-      //poll events();
-      break;
     }
 
     getTerminalSize(&x, &y);    // XMAX, YMAX

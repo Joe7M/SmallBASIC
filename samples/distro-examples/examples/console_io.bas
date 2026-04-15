@@ -1,12 +1,12 @@
 print chr(27) + "[?25l"  ' Hide cursor
 
 ClsTest()
-'GetTerminalSizeTest()
-'SetColorTest()
-'SetCursorPositionTest()
-'GetCursorPositionTest()
+GetTerminalSizeTest()
+SetColorTest()
+SetCursorPositionTest()
+GetCursorPositionTest()
 InkeyTest()
-'InputTest()
+InputTest()
 
 print chr(27) + "[?25h"  ' show cursor
 
