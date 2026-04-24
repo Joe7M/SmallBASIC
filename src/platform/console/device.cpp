@@ -174,16 +174,19 @@ void disableTerminalRawMode(void) {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOriginal);
 }
 
-void initTerminal(void) {
-  enableTerminalRawMode();
-  atexit(disableTerminalRawMode);
-  os_graphics = 1;
-}
-
 void getTerminalSize(int *x, int *y) {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
   *x = consoleSize.ws_col;
   *y = consoleSize.ws_row;
+}
+
+void initTerminal(void) {
+  enableTerminalRawMode();
+  atexit(disableTerminalRawMode);
+  os_graphics = 1;
+  getTerminalSize(&os_graf_mx, &os_graf_my);
+  setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+  setsysvar_int(SYSVAR_YMAX, os_graf_my);
 }
 
 int getCursorPosition(int *rows, int *cols) {
@@ -287,19 +290,19 @@ void initTerminal(void) {
   HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   if (hOut == INVALID_HANDLE_VALUE) {
     p_write = default_write;
-    return 1;
+    return;
   }
 
   DWORD dwMode = 0;
   if (!GetConsoleMode(hOut, &dwMode)) {
     p_write = default_write;
-    return 1;
+    return;
   }
 
   dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   if (!SetConsoleMode(hOut, dwMode)) {
     p_write = default_write;
-    return 1;
+    return;
   }
 }
 
@@ -403,16 +406,18 @@ int osd_devinit() {
   p_textwidth = (textwidth_fn)plugin_get_func("sblib_textwidth");
   p_write = (write_fn)plugin_get_func("sblib_write");
 
+  os_graf_mx = opt_pref_width;
+  os_graf_my = opt_pref_height;
+  setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+  setsysvar_int(SYSVAR_YMAX, os_graf_my);
+  
   init_fn devinit = (init_fn)plugin_get_func("sblib_devinit");
   if (devinit) {
     devinit(prog_file, opt_pref_width, opt_pref_height);
   } else {
     initTerminal();
   }
-  os_graf_mx = opt_pref_width;
-  os_graf_my = opt_pref_height;
-  setsysvar_int(SYSVAR_XMAX, os_graf_mx);
-  setsysvar_int(SYSVAR_YMAX, os_graf_my);
+  
 
   if (p_write == NULL) {
     // Test if output is printed in a terminal. If output is piped into
@@ -521,7 +526,7 @@ void osd_setxy(int x, int y) {
   if (p_setxy) {
     p_setxy(x, y);
   } else {
-    setCursorPosition(x, y);
+    setCursorPosition(y, x);
   }
 }
 

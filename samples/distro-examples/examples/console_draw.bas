@@ -2,14 +2,13 @@ print chr(27) + "[?25l"  ' Hide cursor
 
 color 15,0
 cls
-showpage()
 
 DrawLines()
 DrawPoints()
 DrawRects()
 
 
-at YMAX-1,1: print " "
+at 1, YMAX-2: print " "
 print chr(27) + "[?25h"  ' show cursor
 
 '########################################
