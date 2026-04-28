@@ -12,6 +12,7 @@
 #include <errno.h>
 #include "common/sbapp.h"
 #include "ui/kwp.h"
+#include "input.h"
 
 // decompile handling
 extern "C" {
@@ -399,6 +400,7 @@ bool wait_for_file(const char *file, uint32_t modifiedTime) {
 #endif
 
 static void exit_handler(void) {
+  input_close();
   if (count_tasks()) {
     err_abnormal_exit();
   }
@@ -422,6 +424,7 @@ int main(int argc, char *argv[]) {
   os_graphics = 1;
 
   console_init();
+  input_init();
   atexit(exit_handler);
 
   char *file = nullptr;

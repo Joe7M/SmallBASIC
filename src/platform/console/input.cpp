@@ -13,6 +13,8 @@
 #include "common/keymap.h"
 #include <stdio.h>
 #include "terminal.h"
+#include "input.h"
+#include "input_history.h"
 
 int mouseX = 0;
 int mouseY = 0;
@@ -21,95 +23,151 @@ int mouseLastButtonX = -1;
 int mouseLastButtonY = -1;
 int mouseEvent = 0;
 
+InputHistory history;
+
 #if defined(USE_TERM_IO)
-uint32_t terminalReadKey(void) {
-  int nread;
+// Structure to hold original terminal settings
+struct termios original_termios;
+
+/**
+ * @brief Sets the terminal to non-canonical (raw) mode.
+ */
+void input_init() {
+  // 1. Get current terminal attributes
+  tcgetattr(STDIN_FILENO, &original_termios);
+
+  // 2. Copy them for restoration later
+  struct termios raw = original_termios;
+
+  // 3. Modify settings:
+  //    Disable canonical mode (ICANON) 
+  //    Disable echo (ECHO)
+  //    Disable Ctrl-S and Ctrl-Q (IXON)
+  //    Disable Ctrl-V (IEXTEN)
+  //    Fix Ctrl-M (ICRNL)
+  //    Disable break condition (BRKINT)
+  //    Disable parity checking (INPCK)
+  //    Disable stripping of 8th bit of each input (ISTRIP)
+  //    Set character size to 8 bit (CS8)
+  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw.c_cflag |= (CS8);
+  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+  //raw.c_oflag &= ~(OPOST);   // turns off post processing \n -> \n\r
+
+  // 4. Set timeout and minimum number of bytes for read()
+  raw.c_cc[VMIN] = 0;
+  raw.c_cc[VTIME] = 0;
+
+  // 5. Apply the new settings
+  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+}
+
+/**
+ * @brief Restores the terminal to its original settings.
+ */
+void input_close() {
+  tcsetattr(STDIN_FILENO, TCSANOW, &original_termios);
+}
+
+/**
+ * @brief Reads a single character from stdin in raw mode.
+ * @return The character read, or EOF if an error occurs.
+ */
+int getch() {
   char c;
-  
-  nread = read(STDIN_FILENO, &c, 1);
-  if (nread < 1) {
-    return 0;
+  if (read(STDIN_FILENO, &c, 1) == 1) {
+    return (int)c;
   }
-  if (c == '\x1b') {
-    unsigned char seq[4];
-    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-//    printf("\n%c %c\n", seq[0], seq[1]);
-    if (seq[0] == '[') {
-      if (seq[1] >= '0' && seq[1] <= '9') {
-        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-        if (seq[2] == '~') {
-          switch (seq[1]) {
-            case '1': return SB_KEY_HOME;
-            case '3': return SB_KEY_DELETE;
-            case '4': return SB_KEY_END; 
-            case '5': return SB_KEY_PGUP;
-            case '6': return SB_KEY_PGDN;
-            case '7': return SB_KEY_HOME;
-            case '8': return SB_KEY_END;
-          }
-        } else {
-          if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
-          if (seq[3] == '~') {
-//          printf("\n\n\n%c %c %c %c\n", seq[0], seq[1], seq[2], seq[3]);
-            switch (seq[1]) {
-              case '1':
-                switch (seq[2]) {
-                  case '5': return SB_KEY_F(5);
-                  case '7': return SB_KEY_F(6);
-                  case '8': return SB_KEY_F(7);
-                  case '9': return SB_KEY_F(8);
-                }
-                break;
-              case '2':
-                switch (seq[2]) {
-                  case '0': return SB_KEY_F(9);
-                  case '1': return SB_KEY_F(10);
-                  case '2': return SB_KEY_F(11);
-                  case '4': return SB_KEY_F(12);
-                }
-            }
-          }
+  return EOF;
+}
+
+uint32_t terminalReadKey(void) {
+  char c = getch();
+
+  if (c == EOF)  return 0;
+  if (c == 127)  return SB_KEY_BACKSPACE;
+  if (c != '\x1b') return c;
+
+  /* Escape sequence */
+  unsigned char seq[4];
+  if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+  if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+  if (seq[0] == '[') {
+    if (seq[1] >= '0' && seq[1] <= '9') {
+      /* 3- or 4-byte CSI sequence */
+      if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+
+      if (seq[2] == '~') {
+        switch (seq[1]) {
+          case '1': return SB_KEY_HOME;
+          case '3': return SB_KEY_DELETE;
+          case '4': return SB_KEY_END; 
+          case '5': return SB_KEY_PGUP;
+          case '6': return SB_KEY_PGDN;
+          case '7': return SB_KEY_HOME;
+          case '8': return SB_KEY_END;
         }
       } else {
+        /* 4-byte CSI sequence (function keys) */
+        if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
+        if (seq[3] != '~') return '\x1b';
+
         switch (seq[1]) {
-          case 'A': return SB_KEY_UP; 
-          case 'B': return SB_KEY_DOWN;
-          case 'C': return SB_KEY_RIGHT;
-          case 'D': return SB_KEY_LEFT;
-          case 'H': return SB_KEY_HOME;
-          case 'F': return SB_KEY_END;
-          case 'M': // Mouse event
-            if (read(STDIN_FILENO, &seq, 3) != 3) return '\x1b';
-            mouseEvent = 1;
-            mouseX = seq[1] - 32;
-            mouseY = seq[2] - 32;
-            if ((mouseButton & 3) != 0 && (seq[0] & 3) == 0) {
-              mouseLastButtonX = mouseX;
-              mouseLastButtonY = mouseY;
+          case '1':
+            switch (seq[2]) {
+              case '5': return SB_KEY_F(5);
+              case '7': return SB_KEY_F(6);
+              case '8': return SB_KEY_F(7);
+              case '9': return SB_KEY_F(8);
             }
-            mouseButton = seq[0];
-//          printf("%d %d %d\n", seq[0], seq[1], seq[2]);
-            return 0;
+            break;
+          case '2':
+            switch (seq[2]) {
+              case '0': return SB_KEY_F(9);
+              case '1': return SB_KEY_F(10);
+              case '2': return SB_KEY_F(11);
+              case '4': return SB_KEY_F(12);
+            }
         }
       }
-    } else if (seq[0] == 'O') {
+    } else {
+      /* 2-byte CSI sequence */
       switch (seq[1]) {
+        case 'A': return SB_KEY_UP; 
+        case 'B': return SB_KEY_DOWN;
+        case 'C': return SB_KEY_RIGHT;
+        case 'D': return SB_KEY_LEFT;
         case 'H': return SB_KEY_HOME;
         case 'F': return SB_KEY_END;
-        case 'P': return SB_KEY_F(1);
-        case 'Q': return SB_KEY_F(2);
-        case 'R': return SB_KEY_F(3);
-        case 'S': return SB_KEY_F(4);
+        case 'M': 
+          /* X10 mouse event: button, x, y */
+          if (read(STDIN_FILENO, &seq, 3) != 3) return '\x1b';
+          mouseEvent = 1;
+          mouseX = seq[1] - 32;
+          mouseY = seq[2] - 32;
+          if ((mouseButton & 3) != 0 && (seq[0] & 3) == 0) {
+            mouseLastButtonX = mouseX;
+            mouseLastButtonY = mouseY;
+          }
+          mouseButton = seq[0];
+          return 0;
       }
     }
-    return '\x1b';
+  } else if (seq[0] == 'O') {
+    /* SS3 sequences */
+    switch (seq[1]) {
+      case 'H': return SB_KEY_HOME;
+      case 'F': return SB_KEY_END;
+      case 'P': return SB_KEY_F(1);
+      case 'Q': return SB_KEY_F(2);
+      case 'R': return SB_KEY_F(3);
+      case 'S': return SB_KEY_F(4);
+    }
   }
-  if (c == 127) {
-    return SB_KEY_BACKSPACE;
-  }
-  return c;
+  return '\x1b';
 }
+
 long int getCharacter(void) {
   return terminalReadKey();
 }
@@ -161,6 +219,14 @@ int getMouse(int code) {
 }
 
 #elif defined (_Win32)
+void input_init() {
+  set_terminal_raw();
+}
+
+void input_close() {
+  reset_terminal();
+}
+
 uint32_t terminalReadKey(void) {
   return 0;
 }
@@ -233,7 +299,7 @@ int dev_input_count_char(byte *buf, int pos) {
   if (os_charset != enc_utf8) {
     ch = buf[0];
     ch = ch << 8;
-    ch = ch + buf[1];
+    ch = ch + buf[pos];
     count = dev_input_char2str(ch, cstr);
   } else {
     count = 1;
@@ -358,24 +424,51 @@ char *dev_gets(char *dest, int size) {
       break;
     case SB_KEY_LEFT:
       if (pos > 0) {
+        int old_pos = pos;
         pos -= dev_input_count_char((byte *)dest, pos);
+#if USE_TERM_IO
+        printf("\033[%dD", old_pos - pos);
+        fflush(stdout);
+#elif (_Win32)
+        //TODO
+#endif
       } else {
         dev_beep();
       }
       break;
     case SB_KEY_RIGHT:
       if (pos < len) {
+        int old_pos = pos;
         pos += dev_input_count_char((byte *)dest, pos);
+#if USE_TERM_IO
+        printf("\033[%dC", pos - old_pos);
+        fflush(stdout);
+#elif defined(_Win32)
+        //TODO
+#endif
       } else {
         dev_beep();
       }
       break;
+    case SB_KEY_UP:
+      if (history.up(dest, size)) {
+        pos = len = strlen(dest);
+      }
+      break;
+    case SB_KEY_DOWN:
+      if (history.down(dest, size)) {
+        pos = len = strlen(dest);
+      }
+      break;
     default:
-      if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
+      if ((ch & 0xFF00) != 0xFF00) {
+        // Not an hardware key
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
-#if USE_TERM_IO        
+#if USE_TERM_IO
         printf("%c",(char)ch);
         fflush(stdout);
+#elif defined(_Win32)
+        //TODO
 #endif
       } else {
         ch = 0;
@@ -387,9 +480,13 @@ char *dev_gets(char *dest, int size) {
       }
     }
   } while (ch != '\n' && ch != '\r');
+  
   dest[len] = '\0';
+  history.push(dest);
 #if USE_TERM_IO
   printf("\n");
+#elif defined(_Win32)
+  //TODO
 #endif
   return dest;
 }

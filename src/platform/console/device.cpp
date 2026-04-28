@@ -31,7 +31,6 @@
 
 #if USE_TERM_IO
 struct winsize consoleSize;
-struct termios termiosOriginal, termiosConsole;
 #endif
 
 typedef void (*settextcolor_fn)(long fg, long bg);
@@ -158,22 +157,6 @@ void console_init() {
 }
 
 #if USE_TERM_IO
-void enableTerminalRawMode(void) {
-  tcgetattr(STDIN_FILENO, &termiosConsole);
-  termiosOriginal = termiosConsole;
-  termiosConsole.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-  termiosConsole.c_cflag |= (CS8);
-  termiosConsole.c_lflag &= ~(ECHO | ICANON | IEXTEN);
-  //termiosConsole.c_oflag &= ~(OPOST);   // turns off post processing \n -> \n\r
-  termiosConsole.c_cc[VMIN] = 0;
-  termiosConsole.c_cc[VTIME] = 0;
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosConsole);
-}
-
-void disableTerminalRawMode(void) {
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOriginal);
-}
-
 void getTerminalSize(int *x, int *y) {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
   *x = consoleSize.ws_col;
@@ -181,8 +164,6 @@ void getTerminalSize(int *x, int *y) {
 }
 
 void initTerminal(void) {
-  enableTerminalRawMode();
-  atexit(disableTerminalRawMode);
   os_graphics = 1;
   getTerminalSize(&os_graf_mx, &os_graf_my);
   setsysvar_int(SYSVAR_XMAX, os_graf_mx);
