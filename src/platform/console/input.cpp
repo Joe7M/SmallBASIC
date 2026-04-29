@@ -382,6 +382,10 @@ char *dev_gets(char *dest, int size) {
   long int ch = 0;
   uint16_t pos, len = 0;
   int replace_mode = 0;
+  int cursorX = 0;
+  int cursorY = 0;
+
+  getCursorPosition(&cursorX, &cursorY);
 
   *dest = '\0';
   pos = 0;
@@ -408,6 +412,18 @@ char *dev_gets(char *dest, int size) {
       if (pos > 0) {
         pos -= dev_input_remove_char(dest, pos - 1);
         len = strlen(dest);
+#if USE_TERM_IO
+        printf("\b");
+        printf("\x1b[s");   // Save cursor
+        fflush(stdout);
+        setCursorPosition(cursorX, cursorY);
+        printf("\x1b[K");   // Delete from cursor to end of line
+        printf("%s", dest);
+        printf("\x1b[u");   // Restore cursor
+        fflush(stdout);
+#elif defined(_Win32)
+        //TODO
+#endif
       } else {
         dev_beep();
       }
@@ -465,7 +481,14 @@ char *dev_gets(char *dest, int size) {
         // Not an hardware key
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
 #if USE_TERM_IO
-        printf("%c",(char)ch);
+        //printf("%c",(char)ch);
+        //fflush(stdout);
+        printf("\x1b[s");   // Save cursor
+        setCursorPosition(cursorX, cursorY);
+        printf("\x1b[K");   // Delete from cursor to end of line
+        printf("%s", dest);
+        printf("\x1b[u");   // Restore cursor
+        printf("\x1b[1C");
         fflush(stdout);
 #elif defined(_Win32)
         //TODO

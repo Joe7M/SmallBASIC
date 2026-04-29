@@ -21,8 +21,8 @@
  */
 int dev_init(int mode, int flags) {
   dev_initfs();
-  dev_fgcolor = 0;
-  dev_bgcolor = (os_graphics) ? 15 : 0;
+  dev_fgcolor = 15;
+  dev_bgcolor = 0;
   osd_devinit();
 
   // init the keyboard map
@@ -34,8 +34,8 @@ int dev_init(int mode, int flags) {
   if (os_graphics) {
     // dev_fgcolor + dev_bgcolor can be overridden in osd_devinit()
     // otherwise left as default black text on white background
-    osd_settextcolor(dev_fgcolor, dev_bgcolor);
-    osd_setcolor(dev_fgcolor);
+    //osd_settextcolor(dev_fgcolor, dev_bgcolor);
+    //osd_setcolor(dev_fgcolor);
   } else {
     dev_fgcolor = 7;
     dev_bgcolor = 0;

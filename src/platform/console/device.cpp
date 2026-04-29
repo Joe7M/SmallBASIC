@@ -163,13 +163,6 @@ void getTerminalSize(int *x, int *y) {
   *y = consoleSize.ws_row;
 }
 
-void initTerminal(void) {
-  os_graphics = 1;
-  getTerminalSize(&os_graf_mx, &os_graf_my);
-  setsysvar_int(SYSVAR_XMAX, os_graf_mx);
-  setsysvar_int(SYSVAR_YMAX, os_graf_my);
-}
-
 int getCursorPosition(int *rows, int *cols) {
   char buf[32];
   unsigned int i = 0;
@@ -255,11 +248,12 @@ void setCursorPosition(int row, int col) {
 
 // Bit 0 to 7 is drawing color
 // Bit 8 to 15 is drawing character
-void setForegroundColor(long fg) {
-  setDrawingCharacter(fg);
+void setDrawingColor(long color) {
+  setDrawingCharacter(color);
   //VT100: 8bit color mode
-  printf("\033[48;5;%ldm", fg & 0xFF);   // set background color
-  fflush(stdout);  
+  printf("\033[48;5;%ldm", color & 0xFF);   // set background color
+  backgroundColor = color;
+  fflush(stdout);
 }
 
 #elif defined (_Win32)
@@ -387,18 +381,20 @@ int osd_devinit() {
   p_textwidth = (textwidth_fn)plugin_get_func("sblib_textwidth");
   p_write = (write_fn)plugin_get_func("sblib_write");
 
-  os_graf_mx = opt_pref_width;
-  os_graf_my = opt_pref_height;
-  setsysvar_int(SYSVAR_XMAX, os_graf_mx);
-  setsysvar_int(SYSVAR_YMAX, os_graf_my);
-  
+
   init_fn devinit = (init_fn)plugin_get_func("sblib_devinit");
   if (devinit) {
+    os_graf_mx = opt_pref_width;
+    os_graf_my = opt_pref_height;
+    setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+    setsysvar_int(SYSVAR_YMAX, os_graf_my);
     devinit(prog_file, opt_pref_width, opt_pref_height);
   } else {
-    initTerminal();
+    os_graphics = 1;
+    getTerminalSize(&os_graf_mx, &os_graf_my);
+    setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+    setsysvar_int(SYSVAR_YMAX, os_graf_my);
   }
-  
 
   if (p_write == NULL) {
     // Test if output is printed in a terminal. If output is piped into
@@ -545,14 +541,13 @@ int osd_events(int wait_flag) {
 }
 
 //
-// sets foreground color for drawing routines like LINE or RECT
+// sets color for drawing routines like LINE or RECT
 //
 void osd_setcolor(long color) {
   if (p_setcolor) {
     p_setcolor(color);
   } else {
-    setForegroundColor(color);
-    foregroundColor = color;
+    setDrawingColor(color);
   }
 }
 
