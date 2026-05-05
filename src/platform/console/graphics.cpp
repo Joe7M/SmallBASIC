@@ -8,46 +8,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "terminal.h"
+#include "common/device.h"
 
 #define swap(a, b) { int t = a; a = b; b = t; }
 
-char drawingCharacter = ' ';
-long foregroundColor = 15;
-long backgroundColor = 0;
-
-
-// Bit 0 to 7 is drawing color
-// Bit 8 to 15 is drawing character
-void setDrawingCharacter(long color) {
-  drawingCharacter = (char) ((color & 0xFF00) >> 8);  
-  if (drawingCharacter < 32 || drawingCharacter > 126) {
-    drawingCharacter = ' ';
-  }
-}
-
 void point(int x, int y) {
-  setTextColor(backgroundColor, foregroundColor);
+  setTextColor(dev_bgcolor, dev_fgcolor);
   setCursorPosition(y, x);
-  printf("%c", drawingCharacter);
-  setTextColor(foregroundColor, backgroundColor);
+  putchar(' ');
+  setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
 void fastHLine(int x, int y, int l) {
-  setTextColor(backgroundColor, foregroundColor);
   setCursorPosition(y, x);
   for (int ii = 0; ii < l; ii++) {
-    printf("%c", drawingCharacter);
+    putchar(' ');
   }
-  setTextColor(foregroundColor, backgroundColor);
 }
 
 void fastVLine(int x, int y, int h) {
-  setTextColor(backgroundColor, foregroundColor);
   for (int ii = y; ii < y + h; ii++) {
     setCursorPosition(ii, x);
-    printf("%c", drawingCharacter);
+    putchar(' ');
   }
-  setTextColor(foregroundColor, backgroundColor);
 }
 
 void line(int x0, int y0, int x1, int y1) {
@@ -56,14 +39,14 @@ void line(int x0, int y0, int x1, int y1) {
   int dx, dy;
   int err;
 
-  setTextColor(backgroundColor, foregroundColor);
-  
+  setTextColor(dev_bgcolor, dev_fgcolor);
+
   if (x0 == x1) {
     if (y0 > y1) {
       swap(y0, y1);
     }
     fastVLine(x0, y0, y1 - y0 + 1);
-    setTextColor(foregroundColor, backgroundColor);
+    setTextColor(dev_fgcolor, dev_bgcolor);
     return;
   }
   if (y0 == y1) {
@@ -71,7 +54,7 @@ void line(int x0, int y0, int x1, int y1) {
       swap(x0, x1);
     }
     fastHLine(x0, y0, x1 - x0 + 1);
-    setTextColor(foregroundColor, backgroundColor);
+    setTextColor(dev_fgcolor, dev_bgcolor);
     return;
   }
   
@@ -99,7 +82,7 @@ void line(int x0, int y0, int x1, int y1) {
   if (steep) {
     for (; x0 <= x1; x0++) {
       setCursorPosition(x0, y0);
-      printf("%c", drawingCharacter);
+      putchar(' ');
       err -= dy;
       if (err < 0) {
         y0  += ystep;
@@ -109,8 +92,7 @@ void line(int x0, int y0, int x1, int y1) {
   } else {
     for (; x0 <= x1; x0++) {
       setCursorPosition(y0, x0);
-      printf("%c", drawingCharacter);
-      
+      putchar(' ');
       err -= dy;
       if (err < 0) {
         y0  += ystep;
@@ -118,11 +100,13 @@ void line(int x0, int y0, int x1, int y1) {
       }
     }
   }
-  
-  setTextColor(foregroundColor, backgroundColor);
+
+  setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
 void rect(int x1, int y1, int x2, int y2, int fill) {
+  setTextColor(dev_bgcolor, dev_fgcolor);
+
   if (x2 < x1) {
     swap(x1, x2);
   }
@@ -144,6 +128,8 @@ void rect(int x1, int y1, int x2, int y2, int fill) {
     fastVLine(x1, y1, h);
     fastVLine(x1 + w - 1, y1, h);
   }
+
+  setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
 #if USE_TERM_IO

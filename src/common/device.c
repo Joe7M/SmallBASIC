@@ -34,8 +34,10 @@ int dev_init(int mode, int flags) {
   if (os_graphics) {
     // dev_fgcolor + dev_bgcolor can be overridden in osd_devinit()
     // otherwise left as default black text on white background
-    //osd_settextcolor(dev_fgcolor, dev_bgcolor);
-    //osd_setcolor(dev_fgcolor);
+#if !defined(_CONSOLE)
+    osd_settextcolor(dev_fgcolor, dev_bgcolor);
+    osd_setcolor(dev_fgcolor);
+#endif
   } else {
     dev_fgcolor = 7;
     dev_bgcolor = 0;

@@ -35,18 +35,20 @@ sub SetColorTest()
 end
 
 sub SetCursorPositionTest()
-  at(5,9): print("x -> Position row 5, col 9")
+  at(9,3): print("x -> Position col 9, row 5")
 end
 
 sub GetCursorPositionTest()
   at(2,4)
   x = XPOS
   y = YPOS
-  at (6,0): print "Cursor position: "; x; " "; y
+  at(1,4): print "Get cursor position: "; x; " "; y
 end
 
 sub InputTest()
+  print chr(27) + "[?25h";  ' show cursor
   Input "Input test: ", A
+  print chr(27) + "[?25l";  ' Hide cursor
   print A
 end
 
@@ -81,10 +83,10 @@ sub InkeyTest()
   const KEY_CTRL_A    = CtrlKey(asc("a"))
   
 
-  at(7,1): print "INKEY test. Press q to exit"
+  at(1,5): print "INKEY test. Press q to exit"
   repeat
     i++
-    at(8,1): print i    
+    at(1,6): print i
     k = inkey()
     if len(k)
       select case k
@@ -118,7 +120,7 @@ sub InkeyTest()
           case "q":           running = 1
           case else:          s = k
       end select
-      at(8,7): print s; "                         ";
+      at(5,6): print s; "                         ";
     endif
     delay(10)
   until(running)

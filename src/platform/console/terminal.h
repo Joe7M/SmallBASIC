@@ -18,7 +18,6 @@ void drawLine(int x0, int y0, int x1, int y1);
 void drawRect(int x1, int y1, int x2, int y2, int fill);
 int getCursorPosition(int *rows, int *cols);
 void setCursorPosition(int x, int y);
-void setDrawingCharacter(long color);
 void setTextColor(long fg, long bg);
 void setMouse(int enable);
 int getMouse(int code);

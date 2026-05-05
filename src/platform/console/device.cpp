@@ -82,11 +82,29 @@ static audio_fn p_audio;
 static textwidth_fn p_textwidth;
 static textheight_fn p_textheight;
 
-extern long foregroundColor;
-extern long backgroundColor;
+long old_dev_bgcolor = -1;
 extern int lastMouseX;
 extern int lastMouseY;
 extern int lastMouseButton;
+
+const uint64_t color_map[] = {
+  0x000000, // 0 black
+  0x000080, // 1 blue
+  0x008000, // 2 green
+  0x008080, // 3 cyan
+  0x800000, // 4 red
+  0x800080, // 5 magenta
+  0x808000, // 6 yellow
+  0xC0C0C0, // 7 white
+  0x808080, // 8 gray
+  0x0000FF, // 9 light blue
+  0x00FF00, // 10 light green
+  0x00FFFF, // 11 light cyan
+  0xFF0000, // 12 light red
+  0xFF00FF, // 13 light magenta
+  0xFFFF00, // 14 light yellow
+  0xFFFFFF  // 15 bright white
+};
 
 int get_escape(const char *str, int begin, int end) {
   int result = 0;
@@ -132,16 +150,34 @@ void default_write(const char *str) {
 }
 
 long convertColor(long color) {
-  float r = ((float)((-color & 0xff0000) >> 16)) / 255.0;
-  float g = ((float)((-color & 0xff00) >> 8)) / 255.0;
-  float b = ((float)(-color & 0xff)) / 255.0;
-  
-  // gray scale
-  if (r == g && r == b && g == b) {
-    return (232 + (long)round(23.0*r));
+  // convert from internal format
+  if (color < 0) {
+    color = -color;
+  } else if (color < 16) {
+    color = color_map[color];
   }
-  
-  return (16 + (long)round((36.0 * 5.0*r + 6 * 5.0*g + 5.0*b)));
+
+  // Extract RGB (ignore alpha)
+  int r = (color >> 16) & 0xFF;
+  int g = (color >> 8) & 0xFF;
+  int b = color & 0xFF;
+
+  // Check if it's close to gray
+  if (r == g && g == b) {
+    if (r < 8) return 16;
+    if (r > 248) return 231;
+
+    // Map to grayscale (232–255)
+    return 232 + (r - 8) / 10;
+  }
+
+  // Map RGB to 6x6x6 cube (values 0–5)
+  int r6 = (r * 5) / 255;
+  int g6 = (g * 5) / 255;
+  int b6 = (b * 5) / 255;
+
+  // Compute final index
+  return 16 + (36 * r6) + (6 * g6) + b6;
 }
 
 //
@@ -226,18 +262,27 @@ void setTextColor(long fg, long bg) {
   printf("\033[%ld;%ldm", fg, bg);
   */
   
-  //VT100: 8bit color mode
-  if (fg >= 0) {
+  // VT100: 8bit color mode
+  if (fg > 15) {
+    // if color  > 15 use index to address color
     fg = fg & 0xFF;
   } else {
+    // convert color to RGB
     fg = convertColor(fg);
   }
-  if (bg >= 0) {
-    bg = bg & 0xFF;
-  } else { 
-    bg = convertColor(bg);
+
+  // Prevent setting bgcolor if COLOR is called with one parameter
+  if (bg != old_dev_bgcolor) {
+    old_dev_bgcolor = bg;
+    if (bg > 15) {
+      bg = bg & 0xFF;
+    } else { 
+      bg = convertColor(bg);
+    }
+    printf("\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
+  } else {
+    printf("\033[38;5;%ldm", fg);
   }
-  printf("\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
   fflush(stdout);
 }
 
@@ -246,14 +291,9 @@ void setCursorPosition(int row, int col) {
   fflush(stdout);
 }
 
-// Bit 0 to 7 is drawing color
-// Bit 8 to 15 is drawing character
 void setDrawingColor(long color) {
-  setDrawingCharacter(color);
-  //VT100: 8bit color mode
-  printf("\033[48;5;%ldm", color & 0xFF);   // set background color
-  backgroundColor = color;
-  fflush(stdout);
+  dev_fgcolor = color;
+  setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
 #elif defined (_Win32)
@@ -394,6 +434,8 @@ int osd_devinit() {
     getTerminalSize(&os_graf_mx, &os_graf_my);
     setsysvar_int(SYSVAR_XMAX, os_graf_mx);
     setsysvar_int(SYSVAR_YMAX, os_graf_my);
+    dev_bgcolor = -1;
+    dev_fgcolor = -1;
   }
 
   if (p_write == NULL) {
@@ -426,8 +468,6 @@ void osd_settextcolor(long fg, long bg) {
     p_settextcolor(fg, bg);
   } else {
     setTextColor(fg, bg);
-    foregroundColor = fg;
-    backgroundColor = bg;
   }
 }
 

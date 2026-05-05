@@ -1,7 +1,4 @@
-CLS
-
-color 15,0
-print XMAX, YMAX
+cls
 
 at 5,2: print "A"
 at 6,3: print "B"
