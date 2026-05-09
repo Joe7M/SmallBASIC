@@ -1,3 +1,4 @@
+print chr(27) + "[?1049h" ' enable alternative buffer
 print chr(27) + "[?25l"  ' Hide cursor
 
 ClsTest()
@@ -9,6 +10,7 @@ InkeyTest()
 InputTest()
 
 print chr(27) + "[?25h"  ' show cursor
+print chr(27) + "[?1049l" ' disable alternative buffer
 
 '########################################
 
