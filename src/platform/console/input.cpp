@@ -101,6 +101,7 @@ uint32_t terminalReadKey(void) {
       if (seq[2] == '~') {
         switch (seq[1]) {
           case '1': return SB_KEY_HOME;
+          case '2': return SB_KEY_INSERT;
           case '3': return SB_KEY_DELETE;
           case '4': return SB_KEY_END; 
           case '5': return SB_KEY_PGUP;
@@ -385,7 +386,7 @@ char *dev_gets(char *dest, int size) {
   int cursorX = 0;
   int cursorY = 0;
 
-  getCursorPosition(&cursorX, &cursorY);
+  getCursorPosition(&cursorY, &cursorX);
 
   *dest = '\0';
   pos = 0;
@@ -404,26 +405,19 @@ char *dev_gets(char *dest, int size) {
       break;
     case SB_KEY_HOME:
       pos = 0;
+      setCursorPosition(cursorY, cursorX);
       break;
     case SB_KEY_END:
       pos = len;
+      setCursorPosition(cursorY, cursorX + len);
       break;
     case SB_KEY_BACKSPACE:   // backspace
       if (pos > 0) {
+        int old_pos = pos;
         pos -= dev_input_remove_char(dest, pos - 1);
         len = strlen(dest);
-#if USE_TERM_IO
-        printf("\b");
-        printf("\x1b[s");   // Save cursor
-        fflush(stdout);
-        setCursorPosition(cursorX, cursorY);
-        printf("\x1b[K");   // Delete from cursor to end of line
-        printf("%s", dest);
-        printf("\x1b[u");   // Restore cursor
-        fflush(stdout);
-#elif defined(_Win32)
-        //TODO
-#endif
+        printInline(cursorX, cursorY, dest);
+        moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
@@ -432,6 +426,7 @@ char *dev_gets(char *dest, int size) {
       if (pos < len) {
         dev_input_remove_char(dest, pos);
         len = strlen(dest);
+        printInline(cursorX, cursorY, dest);
       } else
         dev_beep();
       break;
@@ -442,12 +437,7 @@ char *dev_gets(char *dest, int size) {
       if (pos > 0) {
         int old_pos = pos;
         pos -= dev_input_count_char((byte *)dest, pos);
-#if USE_TERM_IO
-        printf("\033[%dD", old_pos - pos);
-        fflush(stdout);
-#elif (_Win32)
-        //TODO
-#endif
+        moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
@@ -456,12 +446,7 @@ char *dev_gets(char *dest, int size) {
       if (pos < len) {
         int old_pos = pos;
         pos += dev_input_count_char((byte *)dest, pos);
-#if USE_TERM_IO
-        printf("\033[%dC", pos - old_pos);
-        fflush(stdout);
-#elif defined(_Win32)
-        //TODO
-#endif
+        moveCursorRight(pos - old_pos);
       } else {
         dev_beep();
       }
@@ -479,20 +464,10 @@ char *dev_gets(char *dest, int size) {
     default:
       if ((ch & 0xFF00) != 0xFF00) {
         // Not an hardware key
+        int old_pos = pos;
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
-#if USE_TERM_IO
-        //printf("%c",(char)ch);
-        //fflush(stdout);
-        printf("\x1b[s");   // Save cursor
-        setCursorPosition(cursorX, cursorY);
-        printf("\x1b[K");   // Delete from cursor to end of line
-        printf("%s", dest);
-        printf("\x1b[u");   // Restore cursor
-        printf("\x1b[1C");
-        fflush(stdout);
-#elif defined(_Win32)
-        //TODO
-#endif
+        printInline(cursorX, cursorY, dest);
+        moveCursorRight(pos - old_pos);
       } else {
         ch = 0;
       }

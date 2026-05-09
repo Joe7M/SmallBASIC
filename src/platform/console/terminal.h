@@ -21,5 +21,8 @@ void setCursorPosition(int x, int y);
 void setTextColor(long fg, long bg);
 void setMouse(int enable);
 int getMouse(int code);
+void moveCursorLeft(int numCharacters);
+void moveCursorRight(int numCharacters);
+void printInline(int x, int y, char *dest);
 
 #endif /* TERMINAL_H */

@@ -60,11 +60,12 @@ sub InkeyTest()
   const KEY_SPACE     = " "
   const KEY_ESC       = chr(27)
   const KEY_RETURN    = chr(13)
-  const KEY_PAGE_UP   = chr(27) + Chr(0x01)
-  const KEY_PAGE_DOWN = chr(27) + Chr(0x02)
-  const KEY_DELETE    = Chr(127)
-  const KEY_HOME      = Chr(27) + Chr(0x11)
-  const KEY_END       = Chr(27) + Chr(0x12)
+  const KEY_PAGE_UP   = chr(27) + chr(1)
+  const KEY_PAGE_DOWN = chr(27) + chr(2)
+  const KEY_DELETE    = chr(127)
+  const KEY_HOME      = chr(27) + chr(0x11)
+  const KEY_END       = chr(27) + chr(0x12)
+  const KEY_INSERT    = chr(27) + chr(16)
   const KEY_BACKSPACE = chr(8)
   const KEY_TAB       = chr(9)
   const KEY_F1        = chr(27) + chr(241)
@@ -101,6 +102,7 @@ sub InkeyTest()
           case KEY_PAGE_UP:   s = "Page up"
           case KEY_PAGE_DOWN: s = "Page down"
           case KEY_END:       s = "End"
+          case KEY_INSERT:    s = "Insert"
           case KEY_DELETE:    s = "Delete"
           case KEY_BACKSPACE: s = "Backspace"
           case KEY_TAB:       s = "Tab"

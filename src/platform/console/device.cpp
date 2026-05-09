@@ -296,6 +296,25 @@ void setDrawingColor(long color) {
   setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
+void moveCursorRight(int numCharacters) {
+  printf("\x1b[%dC", numCharacters);
+  fflush(stdout);
+}
+
+void moveCursorLeft(int numCharacters) {
+  printf("\x1b[%dD", numCharacters);
+  fflush(stdout);
+}
+
+void printInline(int x, int y, char *dest) {
+  printf("\x1b[s");   // Save cursor
+  setCursorPosition(y, x);
+  printf("\x1b[K");   // Delete from cursor to end of line
+  printf("%s", dest);
+  printf("\x1b[u");   // Restore cursor
+  fflush(stdout);
+}
+
 #elif defined (_Win32)
 void initTerminal(void) {
   // Enable vt100 support in newer versions of Windows 10 or 11.
@@ -368,6 +387,9 @@ void setForegroundColor(long color) {
   }
   printf("\033[%ldm", color);
 }
+void moveCursorRight(int numCharacters) {}
+void moveCursorLeft(int numCharacters) {}
+void printInline(int x, int y, char *dest) {}
 #else
 void initTerminal(void) {}
 void clearScreen(void) {}
@@ -383,6 +405,9 @@ int getCursorPosition(int *rows, int *cols) {
   *cols = 0;
   return 0;
 }
+void moveCursorRight(int numCharacters) {}
+void moveCursorLeft(int numCharacters) {}
+void printInline(int x, int y, char *dest) {}
 #endif
 
 void readKey(void) {
@@ -742,7 +767,9 @@ void dev_delay(uint32_t timeout) {
       break;
     }
     slept = dev_get_millisecond_count() - now;
-    if (timeout - slept > WAIT_INTERVAL) {
+    if (slept > timeout) {
+      break;
+    } else if (timeout - slept > WAIT_INTERVAL) {
       usleep(WAIT_INTERVAL * 1000);
     } else {
       usleep((timeout - slept) * 1000);
