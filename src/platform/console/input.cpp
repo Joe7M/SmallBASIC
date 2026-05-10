@@ -67,6 +67,8 @@ void input_init() {
  */
 void input_close() {
   tcsetattr(STDIN_FILENO, TCSANOW, &original_termios);
+  printf("\033[0m");  // reset colors to default
+  printf("\033[J");   // clear screen from cursor down
 }
 
 /**
@@ -241,6 +243,9 @@ int getMouse(int code) {
   return 0;
 }
 #else
+void input_init() {}
+void input_close() {}
+
 uint32_t terminalReadKey(void) {
   return 0;
 }

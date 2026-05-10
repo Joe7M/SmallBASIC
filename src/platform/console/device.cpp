@@ -87,7 +87,7 @@ extern int lastMouseX;
 extern int lastMouseY;
 extern int lastMouseButton;
 
-const uint64_t color_map[] = {
+const uint32_t color_map[] = {
   0x000000, // 0 black
   0x000080, // 1 blue
   0x008000, // 2 green
