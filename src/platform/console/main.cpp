@@ -12,7 +12,6 @@
 #include <errno.h>
 #include "common/sbapp.h"
 #include "ui/kwp.h"
-#include "input.h"
 
 // decompile handling
 extern "C" {
@@ -21,8 +20,6 @@ extern "C" {
   int sbasic_exec_prepare(const char *file);
   int exec_close(int tid);
 }
-
-void console_init();
 
 static struct option OPTIONS[] = {
   {"verbose",        no_argument,       NULL, 'v'},
@@ -35,6 +32,7 @@ static struct option OPTIONS[] = {
   {"option",         optional_argument, NULL, 'o'},
   {"cmd",            optional_argument, NULL, 'c'},
   {"stdin",          optional_argument, NULL, '-'},
+  {"no-vt100",       no_argument,       NULL, 't'},
   {"help",           optional_argument, NULL, 'h'},
   {0, 0, 0, 0}
 };
@@ -243,7 +241,7 @@ bool process_options(int argc, char *argv[], char **runFile, bool *tmpFile, bool
   bool result = true;
   while (result) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "vkfxim:s:o:c:h::", OPTIONS, &option_index);
+    int c = getopt_long(argc, argv, "vkfximt:s:o:c:h::", OPTIONS, &option_index);
     if (c == -1 && !option_index) {
       // no more options
       for (int i = 1; i < argc; i++) {
@@ -313,6 +311,9 @@ bool process_options(int argc, char *argv[], char **runFile, bool *tmpFile, bool
       break;
     case 'i':
       *iterate = true;
+      break;
+    case 't':
+      opt_vt100 = 0;
       break;
     default:
       show_help();
@@ -399,13 +400,6 @@ bool wait_for_file(const char *file, uint32_t modifiedTime) {
 }
 #endif
 
-static void exit_handler(void) {
-  input_close();
-  if (count_tasks()) {
-    err_abnormal_exit();
-  }
-}
-
 //
 // program entry point
 //
@@ -422,10 +416,7 @@ int main(int argc, char *argv[]) {
   opt_verbose = 0;
   opt_graphics = 1;
   os_graphics = 1;
-
-  console_init();
-  input_init();
-  atexit(exit_handler);
+  opt_vt100 = 1;
 
   char *file = nullptr;
   bool tmpFile = false;

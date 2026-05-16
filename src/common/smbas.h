@@ -118,6 +118,7 @@ EXTERN byte opt_mute_audio; /**< whether to mute sounds                      */
 EXTERN byte opt_antialias; /**< OPTION ANTIALIAS OFF                         */
 EXTERN byte opt_autolocal; /**< OPTION AUTOLOCAL                             */
 EXTERN byte opt_trace_on; /**< initial value for the TRON command            */
+EXTERN byte opt_vt100; /**< disable VT100 in console */
 
 #define IDE_NONE        0
 #define IDE_INTERNAL    1

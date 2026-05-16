@@ -26,51 +26,6 @@ int mouseEvent = 0;
 InputHistory history;
 
 #if defined(USE_TERM_IO)
-// Structure to hold original terminal settings
-struct termios original_termios;
-
-/**
- * @brief Sets the terminal to non-canonical (raw) mode.
- */
-void input_init() {
-  // 1. Get current terminal attributes
-  tcgetattr(STDIN_FILENO, &original_termios);
-
-  // 2. Copy them for restoration later
-  struct termios raw = original_termios;
-
-  // 3. Modify settings:
-  //    Disable canonical mode (ICANON) 
-  //    Disable echo (ECHO)
-  //    Disable Ctrl-S and Ctrl-Q (IXON)
-  //    Disable Ctrl-V (IEXTEN)
-  //    Fix Ctrl-M (ICRNL)
-  //    Disable break condition (BRKINT)
-  //    Disable parity checking (INPCK)
-  //    Disable stripping of 8th bit of each input (ISTRIP)
-  //    Set character size to 8 bit (CS8)
-  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-  raw.c_cflag |= (CS8);
-  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
-  //raw.c_oflag &= ~(OPOST);   // turns off post processing \n -> \n\r
-
-  // 4. Set timeout and minimum number of bytes for read()
-  raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 0;
-
-  // 5. Apply the new settings
-  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-}
-
-/**
- * @brief Restores the terminal to its original settings.
- */
-void input_close() {
-  tcsetattr(STDIN_FILENO, TCSANOW, &original_termios);
-  printf("\033[0m");  // reset colors to default
-  printf("\033[J");   // clear screen from cursor down
-}
-
 /**
  * @brief Reads a single character from stdin in raw mode.
  * @return The character read, or EOF if an error occurs.
@@ -83,7 +38,15 @@ int getch() {
   return EOF;
 }
 
-uint32_t terminalReadKey(void) {
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
+
+uint32_t vt100_inputReadKey(void) {
   char c = getch();
 
   if (c == EOF)  return 0;
@@ -172,10 +135,10 @@ uint32_t terminalReadKey(void) {
 }
 
 long int getCharacter(void) {
-  return terminalReadKey();
+  return vt100_inputReadKey();
 }
 
-void setMouse(int enable) {
+void vt100_setMouse(int enable) {
   if (enable) {
     printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
   } else {
@@ -183,7 +146,7 @@ void setMouse(int enable) {
   }
 }
 
-int getMouse(int code) {
+int vt100_getMouse(int code) {
   switch(code) {
     case 0:                 // new mouse event
       if (mouseEvent && (mouseButton & 3) == 0) {
@@ -243,9 +206,6 @@ int getMouse(int code) {
   return 0;
 }
 #else
-void input_init() {}
-void input_close() {}
-
 uint32_t terminalReadKey(void) {
   return 0;
 }
@@ -381,6 +341,9 @@ int dev_input_remove_char(char *dest, int pos) {
   return 0;
 }
 
+
+
+#if defined (USE_TERM_IO) || defined (_Win32)
 /**
  * gets a string (INPUT)
  */
@@ -391,7 +354,7 @@ char *dev_gets(char *dest, int size) {
   int cursorX = 0;
   int cursorY = 0;
 
-  getCursorPosition(&cursorY, &cursorX);
+  vt100_getCursorPosition(&cursorY, &cursorX);
 
   *dest = '\0';
   pos = 0;
@@ -410,19 +373,19 @@ char *dev_gets(char *dest, int size) {
       break;
     case SB_KEY_HOME:
       pos = 0;
-      setCursorPosition(cursorY, cursorX);
+      vt100_setCursorPosition(cursorY, cursorX);
       break;
     case SB_KEY_END:
       pos = len;
-      setCursorPosition(cursorY, cursorX + len);
+      vt100_setCursorPosition(cursorY, cursorX + len);
       break;
     case SB_KEY_BACKSPACE:   // backspace
       if (pos > 0) {
         int old_pos = pos;
         pos -= dev_input_remove_char(dest, pos - 1);
         len = strlen(dest);
-        printInline(cursorX, cursorY, dest);
-        moveCursorLeft(old_pos - pos);
+        vt100_printInline(cursorX, cursorY, dest);
+        vt100_moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
@@ -431,7 +394,7 @@ char *dev_gets(char *dest, int size) {
       if (pos < len) {
         dev_input_remove_char(dest, pos);
         len = strlen(dest);
-        printInline(cursorX, cursorY, dest);
+        vt100_printInline(cursorX, cursorY, dest);
       } else
         dev_beep();
       break;
@@ -442,7 +405,7 @@ char *dev_gets(char *dest, int size) {
       if (pos > 0) {
         int old_pos = pos;
         pos -= dev_input_count_char((byte *)dest, pos);
-        moveCursorLeft(old_pos - pos);
+        vt100_moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
@@ -451,7 +414,7 @@ char *dev_gets(char *dest, int size) {
       if (pos < len) {
         int old_pos = pos;
         pos += dev_input_count_char((byte *)dest, pos);
-        moveCursorRight(pos - old_pos);
+        vt100_moveCursorRight(pos - old_pos);
       } else {
         dev_beep();
       }
@@ -471,8 +434,8 @@ char *dev_gets(char *dest, int size) {
         // Not an hardware key
         int old_pos = pos;
         pos += dev_input_insert_char(ch, dest, pos, replace_mode);
-        printInline(cursorX, cursorY, dest);
-        moveCursorRight(pos - old_pos);
+        vt100_printInline(cursorX, cursorY, dest);
+        vt100_moveCursorRight(pos - old_pos);
       } else {
         ch = 0;
       }
@@ -486,10 +449,85 @@ char *dev_gets(char *dest, int size) {
   
   dest[len] = '\0';
   history.push(dest);
-#if USE_TERM_IO
   printf("\n");
-#elif defined(_Win32)
-  //TODO
-#endif
   return dest;
 }
+#else
+/**
+ * gets a string (INPUT) without VT100
+ */
+char *dev_gets(char *dest, int size) {
+  long int ch = 0;
+  uint16_t pos, len = 0;
+  int replace_mode = 0;
+
+  *dest = '\0';
+  pos = 0;
+  do {
+    len = strlen(dest);
+    ch = fgetc(stdin);
+    switch (ch) {
+    case -1:
+    case -2:
+    case 0xFFFF:
+      dest[pos] = '\0';
+      return dest;
+    case 0:
+    case 10:
+    case 13:                 // ignore
+      break;
+    case SB_KEY_HOME:
+      pos = 0;
+      break;
+    case SB_KEY_END:
+      pos = len;
+      break;
+    case SB_KEY_BACKSPACE:   // backspace
+      if (pos > 0) {
+        pos -= dev_input_remove_char(dest, pos - 1);
+        len = strlen(dest);
+      } else {
+        dev_beep();
+      }
+      break;
+    case SB_KEY_DELETE:      // delete
+      if (pos < len) {
+        dev_input_remove_char(dest, pos);
+        len = strlen(dest);
+      } else
+        dev_beep();
+      break;
+    case SB_KEY_INSERT:
+      replace_mode = !replace_mode;
+      break;
+    case SB_KEY_LEFT:
+      if (pos > 0) {
+        pos -= dev_input_count_char((byte *)dest, pos);
+      } else {
+        dev_beep();
+      }
+      break;
+    case SB_KEY_RIGHT:
+      if (pos < len) {
+        pos += dev_input_count_char((byte *)dest, pos);
+      } else {
+        dev_beep();
+      }
+      break;
+    default:
+      if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
+        pos += dev_input_insert_char(ch, dest, pos, replace_mode);
+      } else {
+        ch = 0;
+      }
+      // check the size
+      len = strlen(dest);
+      if (len >= (size - 2)) {
+        break;
+      }
+    }
+  } while (ch != '\n' && ch != '\r');
+  dest[len] = '\0';
+  return dest;
+}
+#endif

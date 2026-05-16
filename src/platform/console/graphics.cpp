@@ -12,15 +12,17 @@
 
 #define swap(a, b) { int t = a; a = b; b = t; }
 
-void point(int x, int y) {
-  setTextColor(dev_bgcolor, dev_fgcolor);
-  setCursorPosition(y, x);
+
+#if USE_TERM_IO
+void vt100_drawPoint(int x, int y) {
+  vt100_setTextColor(dev_bgcolor, dev_fgcolor);
+  vt100_setCursorPosition(y, x);
   putchar(' ');
-  setTextColor(dev_fgcolor, dev_bgcolor);
+  vt100_setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
 void fastHLine(int x, int y, int l) {
-  setCursorPosition(y, x);
+  vt100_setCursorPosition(y, x);
   for (int ii = 0; ii < l; ii++) {
     putchar(' ');
   }
@@ -28,25 +30,25 @@ void fastHLine(int x, int y, int l) {
 
 void fastVLine(int x, int y, int h) {
   for (int ii = y; ii < y + h; ii++) {
-    setCursorPosition(ii, x);
+    vt100_setCursorPosition(ii, x);
     putchar(' ');
   }
 }
 
-void line(int x0, int y0, int x1, int y1) {
+void vt100_drawLine(int x0, int y0, int x1, int y1) {
   int steep;
   int ystep;
   int dx, dy;
   int err;
 
-  setTextColor(dev_bgcolor, dev_fgcolor);
+  vt100_setTextColor(dev_bgcolor, dev_fgcolor);
 
   if (x0 == x1) {
     if (y0 > y1) {
       swap(y0, y1);
     }
     fastVLine(x0, y0, y1 - y0 + 1);
-    setTextColor(dev_fgcolor, dev_bgcolor);
+    vt100_setTextColor(dev_fgcolor, dev_bgcolor);
     return;
   }
   if (y0 == y1) {
@@ -54,7 +56,7 @@ void line(int x0, int y0, int x1, int y1) {
       swap(x0, x1);
     }
     fastHLine(x0, y0, x1 - x0 + 1);
-    setTextColor(dev_fgcolor, dev_bgcolor);
+    vt100_setTextColor(dev_fgcolor, dev_bgcolor);
     return;
   }
   
@@ -81,7 +83,7 @@ void line(int x0, int y0, int x1, int y1) {
 
   if (steep) {
     for (; x0 <= x1; x0++) {
-      setCursorPosition(x0, y0);
+      vt100_setCursorPosition(x0, y0);
       putchar(' ');
       err -= dy;
       if (err < 0) {
@@ -91,7 +93,7 @@ void line(int x0, int y0, int x1, int y1) {
     }
   } else {
     for (; x0 <= x1; x0++) {
-      setCursorPosition(y0, x0);
+      vt100_setCursorPosition(y0, x0);
       putchar(' ');
       err -= dy;
       if (err < 0) {
@@ -101,11 +103,11 @@ void line(int x0, int y0, int x1, int y1) {
     }
   }
 
-  setTextColor(dev_fgcolor, dev_bgcolor);
+  vt100_setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
-void rect(int x1, int y1, int x2, int y2, int fill) {
-  setTextColor(dev_bgcolor, dev_fgcolor);
+void vt100_drawRect(int x1, int y1, int x2, int y2, int fill) {
+  vt100_setTextColor(dev_bgcolor, dev_fgcolor);
 
   if (x2 < x1) {
     swap(x1, x2);
@@ -129,28 +131,22 @@ void rect(int x1, int y1, int x2, int y2, int fill) {
     fastVLine(x1 + w - 1, y1, h);
   }
 
-  setTextColor(dev_fgcolor, dev_bgcolor);
+  vt100_setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
-#if USE_TERM_IO
-void drawPoint(int x, int y) {
-  point(x, y);
+long vt100_drawGetPixel(int x, int y) {
+  return -1;
 }
 
-void drawLine(int x0, int y0, int x1 , int y1) {
-  line(x0, y0, x1, y1);
-}
+void vt100_drawArc(int xc, int yc, double r, double as, double ae, double aspect) {};
+void vt100_drawEllipse(int xc, int yc, int xr, int yr, int fill) {};
 
-void drawRect(int x0, int y0, int x1, int y1, int fill) {
-  rect(x0, y0, x1, y1, fill); 
-}
 #elif defined (_Win32)
-void drawPoint(int x, int y) {}
-void drawLine(int x0, int y0, int x1, int y1) {}
-void drawRect(int x0, int y0, int x1, int y1, int fill) {}
-#else
-void drawPoint(int x, int y) {}
-void drawLine(int x0, int y0, int x1, int y1) {}
-void drawRect(int x0, int y0, int x1, int y1, int fill) {}
+void vt100_drawPoint(int x, int y) {}
+void vt100_drawLine(int x0, int y0, int x1, int y1) {}
+void vt100_drawRect(int x0, int y0, int x1, int y1, int fill) {}
+void vt100_drawArc(int xc, int yc, double r, double as, double ae, double aspect) {};
+void vt100_drawEllipse(int xc, int yc, int xr, int yr, int fill) {};
+long vt100_drawGetPixel(int x, int y) {};
 #endif
 

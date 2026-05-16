@@ -17,6 +17,7 @@
 #include "common/plugins.h"
 #include "common/smbas.h"
 #include "common/keymap.h"
+#include "common/sberr.h"
 #include <stdio.h>
 #include "terminal.h"
 
@@ -25,13 +26,10 @@
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
+#include <signal.h>
 #endif
 
 #define WAIT_INTERVAL 5
-
-#if USE_TERM_IO
-struct winsize consoleSize;
-#endif
 
 typedef void (*settextcolor_fn)(long fg, long bg);
 typedef void (*setpenmode_fn)(int enable);
@@ -41,14 +39,14 @@ typedef int  (*getx_fn)();
 typedef int  (*gety_fn)();
 typedef void (*setxy_fn)(int x, int y);
 typedef void (*write_fn)(const char *str);
-typedef int  (*events_fn)(int, int*, int*);
+typedef int  (*events_fn)(int wait_flag, int *x, int *y);
 typedef void (*setcolor_fn)(long color);
 typedef void (*line_fn)(int x1, int y1, int x2, int y2);
 typedef void (*ellipse_fn)(int xc, int yc, int xr, int yr, int fill);
 typedef void (*arc_fn)(int xc, int yc, double r, double as, double ae, double aspect);
+typedef void (*rect_fn)(int x1, int y1, int x2, int y2, int fill);
 typedef void (*setpixel_fn)(int x, int y);
 typedef long (*getpixel_fn)(int x, int y);
-typedef void (*rect_fn)(int x1, int y1, int x2, int y2, int fill);
 typedef void (*refresh_fn)();
 typedef void (*beep_fn)();
 typedef void (*sound_fn)(int frq, int ms, int vol, int bgplay);
@@ -105,6 +103,7 @@ const uint32_t color_map[] = {
   0xFFFF00, // 14 light yellow
   0xFFFFFF  // 15 bright white
 };
+
 
 int get_escape(const char *str, int begin, int end) {
   int result = 0;
@@ -180,33 +179,103 @@ long convertColor(long color) {
   return 16 + (36 * r6) + (6 * g6) + b6;
 }
 
-//
-// console output if vt100 (esc sequences) is supported
-//
+#if USE_TERM_IO
+struct winsize consoleSize;
+struct termios original_termios;
+
+/**
+ * @brief Handler for Ctrl+C
+ */
+void handle_signal(int sig) {
+  brun_break();
+}
+
+/**
+ * @brief Sets the terminal to non-canonical (raw) mode.
+ */
+void terminal_init(void) {
+  // 1. Get current terminal attributes
+  tcgetattr(STDIN_FILENO, &original_termios);
+
+  // 2. Copy them for restoration later
+  struct termios raw = original_termios;
+
+  // 3. Modify settings:
+  //    Disable canonical mode (ICANON) 
+  //    Disable echo (ECHO)
+  //    Disable Ctrl-S and Ctrl-Q (IXON)
+  //    Disable Ctrl-V (IEXTEN)
+  //    Fix Ctrl-M (ICRNL)
+  //    Disable break condition (BRKINT)
+  //    Disable parity checking (INPCK)
+  //    Disable stripping of 8th bit of each input (ISTRIP)
+  //    Set character size to 8 bit (CS8)
+  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw.c_cflag |= (CS8);
+  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+  //raw.c_oflag &= ~(OPOST);   // turns off post processing \n -> \n\r
+
+  // 4. Set timeout and minimum number of bytes for read()
+  raw.c_cc[VMIN] = 0;
+  raw.c_cc[VTIME] = 0;
+
+  // 5. Apply the new settings
+  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+  
+  // 6. Register signal handlers
+  struct sigaction sa = {0};
+  sa.sa_handler = handle_signal;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESETHAND;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+  sigaction(SIGHUP, &sa, NULL);
+}
+
+/**
+ * @brief Restores the terminal to its original settings.
+ */
+void terminal_close() {
+  static volatile sig_atomic_t cleaned_up = 0;
+  if (!cleaned_up) {
+    cleaned_up = 1;
+    int col = 0, row = 0;
+
+    write(STDOUT_FILENO, "\033[?1003l", 8); // disable "All Motion Mouse Tracking" if somehow still enabled
+
+    // leave alt screen if somehow entered
+    // this messes up cursor position
+    vt100_getCursorPosition(&row, &col);
+    write(STDOUT_FILENO, "\033[?1049l", 8); 
+    vt100_setCursorPosition(row, col);
+
+    write(STDOUT_FILENO, "\033[0m", 4);     // reset colors
+    write(STDOUT_FILENO, "\033[?25h", 6);   // restore cursor
+    write(STDOUT_FILENO, "\033[J", 3);      // clear screen from cursor down
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &original_termios);  // restore terminal settings
+  }
+}
+
 void vt100_write(const char *str) {
   printf("%s", str);
   fflush(stdout);
 }
 
-void console_init() {
-  p_write = default_write;
-}
-
-#if USE_TERM_IO
-void getTerminalSize(int *x, int *y) {
+void vt100_getTerminalSize(int *x, int *y) {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &consoleSize);
   *x = consoleSize.ws_col;
   *y = consoleSize.ws_row;
 }
 
-int getCursorPosition(int *rows, int *cols) {
+int vt100_getCursorPosition(int *rows, int *cols) {
   char buf[32];
   unsigned int i = 0;
   long int startTime;
-  
+
   *rows = 0;
   *cols = 0;
-  
+
   if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) {
     return -1;
   }
@@ -218,7 +287,7 @@ int getCursorPosition(int *rows, int *cols) {
   while (i < sizeof(buf) - 1) {
     if (dev_get_millisecond_count() - startTime > 50) {
       return -1;
-    } 
+    }
     if (read(STDIN_FILENO, &buf[i], 1) != 1) {
       continue;
     }
@@ -241,13 +310,13 @@ int getCursorPosition(int *rows, int *cols) {
   return 0;
 }
 
-void clearScreen(void) {
+void vt100_clearScreen(void) {
   // VT100: Move cursor to 1,1 and clear screen from cursor
   printf("\033[H\033[J");
   fflush(stdout);
 }
 
-void setTextColor(long fg, long bg) {
+void vt100_setTextColor(long fg, long bg) {
   // VT100: 3bit and 4 bit color
   /*if (fg < 8) {
     fg = 30 + fg;
@@ -286,37 +355,88 @@ void setTextColor(long fg, long bg) {
   fflush(stdout);
 }
 
-void setCursorPosition(int row, int col) {
+void vt100_setCursorPosition(int row, int col) {
   printf("\033[%d;%dH", row, col);
   fflush(stdout);
 }
 
-void setDrawingColor(long color) {
+void vt100_setDrawingColor(long color) {
   dev_fgcolor = color;
-  setTextColor(dev_fgcolor, dev_bgcolor);
+  vt100_setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
-void moveCursorRight(int numCharacters) {
+void vt100_moveCursorRight(int numCharacters) {
   printf("\x1b[%dC", numCharacters);
   fflush(stdout);
 }
 
-void moveCursorLeft(int numCharacters) {
+void vt100_moveCursorLeft(int numCharacters) {
   printf("\x1b[%dD", numCharacters);
   fflush(stdout);
 }
 
-void printInline(int x, int y, char *dest) {
+void vt100_printInline(int x, int y, char *dest) {
   printf("\x1b[s");   // Save cursor
-  setCursorPosition(y, x);
+  vt100_setCursorPosition(y, x);
   printf("\x1b[K");   // Delete from cursor to end of line
   printf("%s", dest);
   printf("\x1b[u");   // Restore cursor
   fflush(stdout);
 }
 
+void vt100_playBeep(void) {
+  printf("\a");
+};
+
+void vt100_refresh() {
+  osd_events(0);
+  fflush(stdout);
+}
+
+static void exit_handler(void) {
+  terminal_close();
+  if (count_tasks()) {
+    err_abnormal_exit();
+  }
+}
+
+void vt100_playAudio(const char *path) {};
+void vt100_playSound(int frq, int ms, int vol, int bgplay) {};
+void vt100_playClearSoundQueue(void) {};
+
+int vt100_cursorGetx(void) {
+  int rows = 0, cols = 0;
+  vt100_getCursorPosition(&rows, &cols);
+  return cols;
+}
+
+int vt100_cursorGety(void) {
+  int rows = 0, cols = 0;
+  vt100_getCursorPosition(&rows, &cols);
+  return rows;
+}
+
+int vt100_cursorTextHeight(const char *str) {
+  return 1;
+}
+
+int vt100_cursorTextWidth(const char *str) {
+  return 1;
+}
+
+int vt100_terminalEvents(int wait_flag, int *x, int *y) {
+  if (wait_flag) {
+    usleep(WAIT_INTERVAL * 1000);
+  }
+
+  vt100_getTerminalSize(x, y);    // XMAX, YMAX
+  readKey();                      // INKEY
+
+  return 0;
+}
+
 #elif defined (_Win32)
-void initTerminal(void) {
+void terminal_init(void) {
   // Enable vt100 support in newer versions of Windows 10 or 11.
   // If vt100 is not supported fall back to default_write.
   // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
@@ -339,6 +459,8 @@ void initTerminal(void) {
     return;
   }
 }
+
+void terminal_close(void) {};
 
 void getTerminalSize(int *x, int *y) {
   *x = 0;
@@ -387,36 +509,46 @@ void setForegroundColor(long color) {
   }
   printf("\033[%ldm", color);
 }
+
+void refresh() {
+  osd_events(0);
+}
+
 void moveCursorRight(int numCharacters) {}
 void moveCursorLeft(int numCharacters) {}
 void printInline(int x, int y, char *dest) {}
-#else
-void initTerminal(void) {}
-void clearScreen(void) {}
-void setTextColor(long fg, long bg) {}
-void setCursorPosition(int x, int y) {}
-void setForegroundColor(long color) {}
-void getTerminalSize(int *x, int *y) {
-  *x = 0;
-  *y = 0;
-}
-int getCursorPosition(int *rows, int *cols) {
-  *rows = 0;
-  *cols = 0;
-  return 0;
-}
-void moveCursorRight(int numCharacters) {}
-void moveCursorLeft(int numCharacters) {}
-void printInline(int x, int y, char *dest) {}
+void playBeep(void) {}
 #endif
 
-void readKey(void) {
-  uint32_t c = terminalReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
-}
+
+/*
+ * Default functions will be used, if
+ * 1. not USE_TERM_IO
+ * 2. not _Win32
+ * 3. isatty() -> false
+*/
+void default_drawArc(int xc, int yc, double r, double as, double ae, double aspect) {}
+void default_playAudio(const char *path) {}
+void default_playSound(int frq, int ms, int vol, int bgplay) {}
+void default_playBeep(void) {}
+void default_playClearSoundQueue(void) {}
+void default_clearScreen(void) {}
+void default_drawEllipse(int xc, int yc, int xr, int yr, int fill) {}
+int default_terminalEvents(int wait_flag, int *x, int *y) {return 0;}
+int default_getMouse(int code) {return 0;}
+long default_drawGetPixel(int x, int y) {return 0;}
+int default_cursorGetx(void) {return 0;}
+int default_cursorGety(void) {return 0;}
+void default_drawLine(int x1, int y1, int x2, int y2) {}
+void default_drawRect(int x1, int y1, int x2, int y2, int fill) {}
+void default_drawPoint(int x, int y) {}
+void default_refresh(void) {}
+void default_setDrawingColor(long color) {}
+void default_setMouse(int enable) {}
+void default_setTextColor(long fg, long bg) {}
+void default_setCursorPosition(int x, int y) {}
+int default_cursorTextHeight(const char *str) {return 1;}
+int default_cursorTextWidth(const char *str) {return 1;}
 
 //
 // initialize driver
@@ -446,7 +578,6 @@ int osd_devinit() {
   p_textwidth = (textwidth_fn)plugin_get_func("sblib_textwidth");
   p_write = (write_fn)plugin_get_func("sblib_write");
 
-
   init_fn devinit = (init_fn)plugin_get_func("sblib_devinit");
   if (devinit) {
     os_graf_mx = opt_pref_width;
@@ -454,25 +585,172 @@ int osd_devinit() {
     setsysvar_int(SYSVAR_XMAX, os_graf_mx);
     setsysvar_int(SYSVAR_YMAX, os_graf_my);
     devinit(prog_file, opt_pref_width, opt_pref_height);
-  } else {
-    os_graphics = 1;
-    getTerminalSize(&os_graf_mx, &os_graf_my);
-    setsysvar_int(SYSVAR_XMAX, os_graf_mx);
-    setsysvar_int(SYSVAR_YMAX, os_graf_my);
-    dev_bgcolor = -1;
-    dev_fgcolor = -1;
   }
 
-  if (p_write == NULL) {
-    // Test if output is printed in a terminal. If output is piped into
-    // a text file or sbasic is running as a cron job, use
-    // default_write without vt100 support
-    if (!isatty(STDOUT_FILENO)) {
-      p_write = default_write;
-      return 1;
+#if defined (USE_TERM_IO) || defined(_Win32)
+  if (isatty(STDOUT_FILENO) && opt_vt100) {
+    if(!devinit) {
+      terminal_init();
+      atexit(exit_handler);
+      os_graphics = 1;
+      vt100_getTerminalSize(&os_graf_mx, &os_graf_my);
+      setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+      setsysvar_int(SYSVAR_YMAX, os_graf_my);
+      dev_bgcolor = -1;
+      dev_fgcolor = -1;
     }
-    p_write = vt100_write;
+    if (!p_arc) {
+      p_arc = vt100_drawArc;
+    };
+    if (!p_audio) {
+      p_audio = vt100_playAudio;
+    };
+    if (!p_beep) {
+      p_beep = vt100_playBeep;
+    };
+    if (!p_clear_sound_queue) {
+      p_clear_sound_queue = vt100_playClearSoundQueue;
+    };
+    if (!p_cls) {
+      p_cls = vt100_clearScreen;
+    };
+    if (!p_ellipse) {
+      p_ellipse = vt100_drawEllipse;
+    };
+    if (!p_events) {
+      p_events = vt100_terminalEvents;
+    };
+    if (!p_getpen) {
+      p_getpen = vt100_getMouse;
+    };
+    if (!p_getpixel) {
+      p_getpixel = vt100_drawGetPixel;
+    };
+    if (!p_getx) {
+      p_getx = vt100_cursorGetx;
+    };
+    if (!p_gety) {
+      p_gety = vt100_cursorGety;
+    };
+    if (!p_line) {
+      p_line = vt100_drawLine;
+    };
+    if (!p_rect) {
+      p_rect = vt100_drawRect;
+    };
+    if (!p_refresh) {
+      p_refresh = vt100_refresh;
+    };
+    if (!p_setcolor) {
+      p_setcolor = vt100_setDrawingColor;
+    };
+    if (!p_setpenmode) {
+      p_setpenmode = vt100_setMouse;
+    };
+    if (!p_setpixel) {
+      p_setpixel = vt100_drawPoint;
+    };
+    if (!p_settextcolor) {
+      p_settextcolor = vt100_setTextColor;
+    };
+    if (!p_setxy) {
+      p_setxy = vt100_setCursorPosition;
+    };
+    if (!p_sound) {
+      p_sound = vt100_playSound;
+    };
+    if (!p_textheight) {
+      p_textheight = vt100_cursorTextHeight;
+    };
+    if (!p_textwidth) {
+      p_textwidth = vt100_cursorTextWidth;
+    };
+    if (!p_write) {
+      p_write = vt100_write;
+    };
+  } else {
+#endif
+    if(!devinit) {
+      os_graphics = 0;
+      os_graf_mx = 0;
+      os_graf_my = 0;
+      setsysvar_int(SYSVAR_XMAX, os_graf_mx);
+      setsysvar_int(SYSVAR_YMAX, os_graf_my);
+      dev_bgcolor = -1;
+      dev_fgcolor = -1;
+    }
+    if (!p_arc) {
+      p_arc = default_drawArc;
+    };
+    if (!p_audio) {
+      p_audio = default_playAudio;
+    };
+    if (!p_beep) {
+      p_beep = default_playBeep;
+    };
+    if (!p_clear_sound_queue) {
+      p_clear_sound_queue = default_playClearSoundQueue;
+    };
+    if (!p_cls) {
+      p_cls = default_clearScreen;
+    };
+    if (!p_ellipse) {
+      p_ellipse = default_drawEllipse;
+    };
+    if (!p_events) {
+      p_events = default_terminalEvents;
+    };
+    if (!p_getpen) {
+      p_getpen = default_getMouse;
+    };
+    if (!p_getpixel) {
+      p_getpixel = default_drawGetPixel;
+    };
+    if (!p_getx) {
+      p_getx = default_cursorGetx;
+    };
+    if (!p_gety) {
+      p_gety = default_cursorGety;
+    };
+    if (!p_line) {
+      p_line = default_drawLine;
+    };
+    if (!p_rect) {
+      p_rect = default_drawRect;
+    };
+    if (!p_refresh) {
+      p_refresh = default_refresh;
+    };
+    if (!p_setcolor) {
+      p_setcolor = default_setDrawingColor;
+    };
+    if (!p_setpenmode) {
+      p_setpenmode = default_setMouse;
+    };
+    if (!p_setpixel) {
+      p_setpixel = default_drawPoint;
+    };
+    if (!p_settextcolor) {
+      p_settextcolor = default_setTextColor;
+    };
+    if (!p_setxy) {
+      p_setxy = default_setCursorPosition;
+    };
+    if (!p_sound) {
+      p_sound = default_playSound;
+    };
+    if (!p_textheight) {
+      p_textheight = default_cursorTextHeight;
+    };
+    if (!p_textwidth) {
+      p_textwidth = default_cursorTextWidth;
+    };
+    if (!p_write) {
+      p_write = default_write;
+    };
+#if defined (USE_TERM_IO) || defined(_Win32)
   }
+#endif
   return 1;
 }
 
@@ -489,87 +767,49 @@ int osd_devrestore() {
 // called by COLOR keyword
 //
 void osd_settextcolor(long fg, long bg) {
-  if (p_settextcolor) {
-    p_settextcolor(fg, bg);
-  } else {
-    setTextColor(fg, bg);
-  }
+  p_settextcolor(fg, bg);
 }
 
 //
 // enable or disable PEN/MOUSE driver
 //
 void osd_setpenmode(int enable) {
-  if (p_setpenmode) {
-    p_setpenmode(enable);
-  } else {
-    setMouse(enable);
-  }
+  p_setpenmode(enable);
 }
 
 //
 // return pen/mouse info ('code' is the rq, see doc)
 //
 int osd_getpen(int code) {
-  int result;
-  if (p_getpen) {
-    result = p_getpen(code);
-  } else {
-    result = getMouse(code);
-  }
-  return result;
+  return p_getpen(code);
 }
 
 //
 // clear screen
 //
 void osd_cls() {
-  if (p_cls) {
-    p_cls();
-  } else {
-    clearScreen();
-  }
+  p_cls();
 }
 
 //
 // returns the current x position (text-mode cursor)
 //
 int osd_getx() {
-  int result;
-  if (p_getx) {
-    result = p_getx();
-  } else {
-    int cols = 0, rows = 0;
-    getCursorPosition(&rows, &cols);
-    result = cols;
-  }
-  return result;
+  return p_getx();
 }
 
 //
 // returns the current y position (text-mode cursor)
 //
 int osd_gety() {
-  int result;
-  if (p_gety) {
-    result = p_gety();
-  } else {
-    int cols = 0, rows = 0;
-    getCursorPosition(&rows, &cols);
-    result = rows;
-  }
-  return result;
+  return p_gety();
 }
 
 //
 // set's text-mode (or graphics) cursor position
 //
-void osd_setxy(int x, int y) {
-  if (p_setxy) {
-    p_setxy(x, y);
-  } else {
-    setCursorPosition(y, x);
-  }
+void osd_setxy(int y, int x) {
+  p_setxy(x, y);
 }
 
 //
@@ -586,17 +826,8 @@ int osd_events(int wait_flag) {
   int result = 0;
   int x = os_graf_mx;
   int y = os_graf_my;
-  
-  if (p_events) {
-    result = p_events(wait_flag, &x, &y);
-  } else {
-    if (wait_flag) {
-      usleep(WAIT_INTERVAL * 1000);
-    }
 
-    getTerminalSize(&x, &y);    // XMAX, YMAX
-    readKey();                  // INKEY
-  }
+  result = p_events(wait_flag, &x, &y);
 
   if (x != os_graf_mx || y != os_graf_my) {
     dev_resize(x, y);
@@ -609,151 +840,99 @@ int osd_events(int wait_flag) {
 // sets color for drawing routines like LINE or RECT
 //
 void osd_setcolor(long color) {
-  if (p_setcolor) {
-    p_setcolor(color);
-  } else {
-    setDrawingColor(color);
-  }
+  p_setcolor(color);
+
 }
 
 //
 // draw a line
 //
 void osd_line(int x1, int y1, int x2, int y2) {
-  if (p_line) {
-    p_line(x1, y1, x2, y2);
-  } else {
-    drawLine(x1, y1, x2, y2);
-  }
+  p_line(x1, y1, x2, y2);
 }
 
 //
 // draw an ellipse
 //
 void osd_ellipse(int xc, int yc, int xr, int yr, int fill) {
-  if (p_ellipse) {
-    p_ellipse(xc, yc, xr, yr, fill);
-  }
+  p_ellipse(xc, yc, xr, yr, fill);
 }
 
 //
 // draw an arc
 //
 void osd_arc(int xc, int yc, double r, double as, double ae, double aspect) {
-  if (p_arc) {
-    p_arc(xc, yc, r, as, ae, aspect);
-  }
+  p_arc(xc, yc, r, as, ae, aspect);
 }
 
 //
 // draw a pixel
 //
 void osd_setpixel(int x, int y) {
-  if (p_setpixel) {
-    p_setpixel(x, y);
-  } else {
-    drawPoint(x, y);
-  }
+  p_setpixel(x, y);
 }
 
 //
 // returns pixel's color
 //
 long osd_getpixel(int x, int y) {
-  long result;
-  if (p_getpixel) {
-    result = p_getpixel(x, y);
-  } else {
-    result = 0;
-  }
-  return result;
+  return p_getpixel(x, y);
 }
 
 //
 // draw rectangle (parallelogram)
 //
 void osd_rect(int x1, int y1, int x2, int y2, int fill) {
-  if (p_rect) {
-    p_rect(x1, y1, x2, y2, fill);
-  } else {
-    drawRect(x1, y1, x2, y2, fill);
-  }
+  p_rect(x1, y1, x2, y2, fill);
 }
 
 //
 // refresh/flush the screen/stdout
 //
 void osd_refresh() {
-  if (p_refresh) {
-    p_refresh();
-  } else {
-    osd_events(0);
-    fflush(stdout);
-  }
+  p_refresh();
 }
 
 //
 // just a beep
 //
 void osd_beep() {
-  if (p_beep) {
-    p_beep();
-  } else {
-    printf("\a");
-  }
+  p_beep();
 }
 
 //
 // play a sound
 //
 void osd_sound(int frq, int ms, int vol, int bgplay) {
-  if (p_sound) {
-    p_sound(frq, ms, vol, bgplay);
-  }
+  p_sound(frq, ms, vol, bgplay);
 }
 
 //
 // clears sound-queue (stop background sound)
 //
 void osd_clear_sound_queue() {
-  if (p_clear_sound_queue) {
-    p_clear_sound_queue();
-  }
+  p_clear_sound_queue();
 }
 
 //
 // play the given audio file
 //
 void osd_audio(const char *path) {
-  if (p_audio) {
-    p_audio(path);
-  }
+  p_audio(path);
 }
 
 //
 // text-width in pixels
 //
 int osd_textwidth(const char *str) {
-  int result;
-  if (p_textwidth) {
-    result = p_textwidth(str);
-  } else {
-    result = strlen(str);
-  }
-  return result;
+  return p_textwidth(str);
 }
 
 //
 // text-height in pixels
 //
 int osd_textheight(const char *str) {
-  int result;
-  if (p_textheight) {
-    result = p_textheight(str);
-  } else {
-    result = 1;
-  }
-  return result;
+  return p_textheight(str);
 }
 
 //

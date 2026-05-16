@@ -12,17 +12,23 @@
 #include "config.h"
 #include <stdint.h>
 
-uint32_t terminalReadKey(void);
-void drawPoint(int x, int y);
-void drawLine(int x0, int y0, int x1, int y1);
-void drawRect(int x1, int y1, int x2, int y2, int fill);
-int getCursorPosition(int *rows, int *cols);
-void setCursorPosition(int x, int y);
-void setTextColor(long fg, long bg);
-void setMouse(int enable);
-int getMouse(int code);
-void moveCursorLeft(int numCharacters);
-void moveCursorRight(int numCharacters);
-void printInline(int x, int y, char *dest);
+uint32_t vt100_inputReadKey(void);
+void vt100_drawPoint(int x, int y);
+void vt100_drawLine(int x0, int y0, int x1, int y1);
+void vt100_drawRect(int x1, int y1, int x2, int y2, int fill);
+void vt100_drawArc(int xc, int yc, double r, double as, double ae, double aspect);
+void vt100_drawEllipse(int xc, int yc, int xr, int yr, int fill);
+int vt100_getCursorPosition(int *rows, int *cols);
+void vt100_setCursorPosition(int x, int y);
+void vt100_setTextColor(long fg, long bg);
+void vt100_setMouse(int enable);
+long vt100_drawGetPixel(int x, int y);
+int vt100_getMouse(int code);
+void vt100_moveCursorLeft(int numCharacters);
+void vt100_moveCursorRight(int numCharacters);
+void vt100_printInline(int x, int y, char *dest);
+void readKey(void);
+void input_init(void);
+
 
 #endif /* TERMINAL_H */
