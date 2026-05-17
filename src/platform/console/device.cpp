@@ -179,6 +179,10 @@ long convertColor(long color) {
   return 16 + (36 * r6) + (6 * g6) + b6;
 }
 
+void console_init() {
+  p_write = default_write;
+}
+
 #if USE_TERM_IO
 struct winsize consoleSize;
 struct termios original_termios;

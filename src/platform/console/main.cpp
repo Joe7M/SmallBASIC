@@ -21,6 +21,8 @@ extern "C" {
   int exec_close(int tid);
 }
 
+void console_init();
+
 static struct option OPTIONS[] = {
   {"verbose",        no_argument,       NULL, 'v'},
   {"keywords",       no_argument,       NULL, 'k'},
@@ -418,6 +420,8 @@ int main(int argc, char *argv[]) {
   os_graphics = 1;
   opt_vt100 = 1;
 
+  console_init();
+  
   char *file = nullptr;
   bool tmpFile = false;
   bool iterate = false;
