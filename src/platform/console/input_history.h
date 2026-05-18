@@ -70,15 +70,15 @@ class InputHistory {
    */
   bool copy(int index, char *dest, int size) {
     bool result = false;
-    if (index >= 0 && index < (int)history_stack.size()) {
-      int destLen = dest != nullptr ? strlen(dest) : 0;
+    if (index >= 0 && index < (int)history_stack.size()) {      
       const std::string& entry = history_stack[index];
       strlcpy(dest, entry.c_str(), size);
       result = true;
       current_index = index;
 
       // echo the result
-#if USE_TERM_IO
+#if USE_TERM_IO || defined (_Win32)
+      int destLen = dest != nullptr ? strlen(dest) : 0;
       if (destLen > 0) {
         // go back n positions before clearing the line
         printf("\033[%dD\033[K%s", destLen, dest);

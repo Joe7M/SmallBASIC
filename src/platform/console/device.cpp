@@ -591,7 +591,7 @@ int osd_devinit() {
     devinit(prog_file, opt_pref_width, opt_pref_height);
   }
 
-#if defined (USE_TERM_IO) || defined(_Win32)
+#if USE_TERM_IO || defined(_Win32)
   if (isatty(STDOUT_FILENO) && opt_vt100) {
     if(!devinit) {
       terminal_init();
@@ -752,7 +752,7 @@ int osd_devinit() {
     if (!p_write) {
       p_write = default_write;
     };
-#if defined (USE_TERM_IO) || defined(_Win32)
+#if USE_TERM_IO || defined(_Win32)
   }
 #endif
   return 1;

@@ -25,7 +25,7 @@ int mouseEvent = 0;
 
 InputHistory history;
 
-#if defined(USE_TERM_IO)
+#if USE_TERM_IO
 /**
  * @brief Reads a single character from stdin in raw mode.
  * @return The character read, or EOF if an error occurs.
@@ -343,7 +343,7 @@ int dev_input_remove_char(char *dest, int pos) {
 
 
 
-#if defined (USE_TERM_IO) || defined (_Win32)
+#if USE_TERM_IO || defined (_Win32)
 /**
  * gets a string (INPUT)
  */
@@ -467,52 +467,9 @@ char *dev_gets(char *dest, int size) {
     len = strlen(dest);
     ch = fgetc(stdin);
     switch (ch) {
-    case -1:
-    case -2:
-    case 0xFFFF:
-      dest[pos] = '\0';
-      return dest;
     case 0:
     case 10:
     case 13:                 // ignore
-      break;
-    case SB_KEY_HOME:
-      pos = 0;
-      break;
-    case SB_KEY_END:
-      pos = len;
-      break;
-    case SB_KEY_BACKSPACE:   // backspace
-      if (pos > 0) {
-        pos -= dev_input_remove_char(dest, pos - 1);
-        len = strlen(dest);
-      } else {
-        dev_beep();
-      }
-      break;
-    case SB_KEY_DELETE:      // delete
-      if (pos < len) {
-        dev_input_remove_char(dest, pos);
-        len = strlen(dest);
-      } else
-        dev_beep();
-      break;
-    case SB_KEY_INSERT:
-      replace_mode = !replace_mode;
-      break;
-    case SB_KEY_LEFT:
-      if (pos > 0) {
-        pos -= dev_input_count_char((byte *)dest, pos);
-      } else {
-        dev_beep();
-      }
-      break;
-    case SB_KEY_RIGHT:
-      if (pos < len) {
-        pos += dev_input_count_char((byte *)dest, pos);
-      } else {
-        dev_beep();
-      }
       break;
     default:
       if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
