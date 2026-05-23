@@ -54,7 +54,7 @@ uint32_t vt100_inputReadKey(void) {
   if (c != '\x1b') return c;
 
   /* Escape sequence */
-  unsigned char seq[4];
+  unsigned char seq[5];
   if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
   if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
@@ -73,6 +73,18 @@ uint32_t vt100_inputReadKey(void) {
           case '6': return SB_KEY_PGDN;
           case '7': return SB_KEY_HOME;
           case '8': return SB_KEY_END;
+        }
+      } else if (seq[2] == ';') {
+        // 5-byte sequence CTRL + arrow keys
+        if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
+        if (read(STDIN_FILENO, &seq[4], 1) != 1) return '\x1b';
+        if (seq[3] == '5') {
+          switch (seq[4]) {
+            case 'A': return SB_KEY_CTRL(SB_KEY_UP);
+            case 'B': return SB_KEY_CTRL(SB_KEY_DOWN);
+            case 'D': return SB_KEY_CTRL(SB_KEY_LEFT);
+            case 'C': return SB_KEY_CTRL(SB_KEY_RIGHT);
+          }
         }
       } else {
         /* 4-byte CSI sequence (function keys) */
@@ -427,6 +439,33 @@ char *dev_gets(char *dest, int size) {
     case SB_KEY_DOWN:
       if (history.down(dest, size)) {
         pos = len = strlen(dest);
+      }
+      break;
+    case SB_KEY_CTRL(SB_KEY_LEFT):
+      // find previous word
+      if (pos > 0) {
+        int old_pos = pos;
+        while (pos > 0) {
+          pos--;
+          if (dest[pos] == ' ' && dest[pos - 1] != ' ') {
+            break;
+          }
+        }
+        vt100_moveCursorLeft(old_pos - pos);
+      }
+      break;
+    case SB_KEY_CTRL(SB_KEY_RIGHT):
+      // find next word
+      if (pos < len) {
+        int old_pos = pos;
+        while (pos < len) {
+          pos++;
+          if (dest[pos] == ' ' && dest[pos + 1] != ' ') {
+            pos++;
+            break;
+          }
+        }
+        vt100_moveCursorRight(pos - old_pos);
       }
       break;
     default:
