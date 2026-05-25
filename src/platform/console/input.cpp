@@ -68,7 +68,7 @@ uint32_t vt100_inputReadKey(void) {
           case '1': return SB_KEY_HOME;
           case '2': return SB_KEY_INSERT;
           case '3': return SB_KEY_DELETE;
-          case '4': return SB_KEY_END; 
+          case '4': return SB_KEY_END;
           case '5': return SB_KEY_PGUP;
           case '6': return SB_KEY_PGDN;
           case '7': return SB_KEY_HOME;
@@ -112,13 +112,13 @@ uint32_t vt100_inputReadKey(void) {
     } else {
       /* 2-byte CSI sequence */
       switch (seq[1]) {
-        case 'A': return SB_KEY_UP; 
+        case 'A': return SB_KEY_UP;
         case 'B': return SB_KEY_DOWN;
         case 'C': return SB_KEY_RIGHT;
         case 'D': return SB_KEY_LEFT;
         case 'H': return SB_KEY_HOME;
         case 'F': return SB_KEY_END;
-        case 'M': 
+        case 'M':
           /* X10 mouse event: button, x, y */
           if (read(STDIN_FILENO, &seq, 3) != 3) return '\x1b';
           mouseEvent = 1;
@@ -197,26 +197,30 @@ int vt100_getMouse(int code) {
 }
 
 #elif defined (_Win32)
-void input_init() {
-  set_terminal_raw();
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
 }
 
-void input_close() {
-  reset_terminal();
-}
-
-uint32_t terminalReadKey(void) {
-  return 0;
-}
+uint32_t vt100_inputReadKey(void) {return 0;};
 
 long int getCharacter(void) {
-  return fgetc(stdin);
+  return vt100_inputReadKey();
 }
 
-void setMouse(int enable) {}
-int getMouse(int code) {
-  return 0;
+void vt100_setMouse(int enable) {
+  if (enable) {
+    printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
+  } else {
+    printf("\x1b[?1003l");    // disable "All Motion Mouse Tracking"
+  }
 }
+
+int vt100_getMouse(int code) {return 0;}
+
 #else
 uint32_t terminalReadKey(void) {
   return 0;
@@ -485,7 +489,7 @@ char *dev_gets(char *dest, int size) {
       }
     }
   } while (ch != '\n' && ch != '\r');
-  
+
   dest[len] = '\0';
   history.push(dest);
   printf("\n");

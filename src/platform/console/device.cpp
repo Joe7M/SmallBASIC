@@ -27,6 +27,8 @@
 #include <termios.h>
 #include <stdlib.h>
 #include <signal.h>
+#elif defined(_Win32)
+#include <windows.h>
 #endif
 
 #define WAIT_INTERVAL 5
@@ -205,7 +207,7 @@ void terminal_init(void) {
   struct termios raw = original_termios;
 
   // 3. Modify settings:
-  //    Disable canonical mode (ICANON) 
+  //    Disable canonical mode (ICANON)
   //    Disable echo (ECHO)
   //    Disable Ctrl-S and Ctrl-Q (IXON)
   //    Disable Ctrl-V (IEXTEN)
@@ -225,7 +227,7 @@ void terminal_init(void) {
 
   // 5. Apply the new settings
   tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-  
+
   // 6. Register signal handlers
   struct sigaction sa = {0};
   sa.sa_handler = handle_signal;
@@ -250,7 +252,7 @@ void terminal_close() {
     // leave alt screen if somehow entered
     // this messes up cursor position
     vt100_getCursorPosition(&row, &col);
-    write(STDOUT_FILENO, "\033[?1049l", 8); 
+    write(STDOUT_FILENO, "\033[?1049l", 8);
     vt100_setCursorPosition(row, col);
 
     write(STDOUT_FILENO, "\033[0m", 4);     // reset colors
@@ -334,7 +336,7 @@ void vt100_setTextColor(long fg, long bg) {
   }
   printf("\033[%ld;%ldm", fg, bg);
   */
-  
+
   // VT100: 8bit color mode
   if (fg > 15) {
     // if color  > 15 use index to address color
@@ -349,7 +351,7 @@ void vt100_setTextColor(long fg, long bg) {
     old_dev_bgcolor = bg;
     if (bg > 15) {
       bg = bg & 0xFF;
-    } else { 
+    } else {
       bg = convertColor(bg);
     }
     printf("\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
@@ -440,88 +442,209 @@ int vt100_terminalEvents(int wait_flag, int *x, int *y) {
 }
 
 #elif defined (_Win32)
+CONSOLE_SCREEN_BUFFER_INFO screenBufferInfo;
+HANDLE hIn;
+HANDLE hOut;
+DWORD original_dwMode_Out;
+DWORD original_dwMode_In;
+
+void vt100_write(const char *str) {
+  long unsigned int charsWritten;
+  WriteConsole(hOut, str, strlen(str), &charsWritten, NULL);
+}
+
 void terminal_init(void) {
   // Enable vt100 support in newer versions of Windows 10 or 11.
   // If vt100 is not supported fall back to default_write.
   // See: https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
 
-  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  hIn = GetStdHandle(STD_INPUT_HANDLE);
+  if (hIn == INVALID_HANDLE_VALUE) {
+    p_write = default_write;
+    return;
+  }
+
+ /* if (!GetConsoleMode(hOut, &original_dwMode_Out)) {
+    p_write = default_write;
+    return;
+  }
+  if (!GetConsoleMode(hIn, &original_dwMode_In)) {
+    p_write = default_write;
+    return;
+  }
+*/
+  DWORD dwMode = 0;
+  dwMode = (ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT)
+    & ~ENABLE_ECHO_INPUT
+    & ~ENABLE_INSERT_MODE
+    & ~ENABLE_LINE_INPUT
+    & ~ENABLE_MOUSE_INPUT
+    & ~ENABLE_WINDOW_INPUT
+    & ~ENABLE_QUICK_EDIT_MODE;
+  if (!SetConsoleMode(hIn, dwMode)) {
+    p_write = default_write;
+    return;
+  }
+
+  hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   if (hOut == INVALID_HANDLE_VALUE) {
     p_write = default_write;
     return;
   }
-
-  DWORD dwMode = 0;
-  if (!GetConsoleMode(hOut, &dwMode)) {
-    p_write = default_write;
-    return;
-  }
-
-  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  dwMode = 0;
+  dwMode =  (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
   if (!SetConsoleMode(hOut, dwMode)) {
     p_write = default_write;
     return;
   }
+
+  p_write = vt100_write;
 }
 
-void terminal_close(void) {};
+void terminal_close(void) {
+  GetConsoleMode(hOut, &original_dwMode_Out);
+  GetConsoleMode(hIn, &original_dwMode_In);
+};
 
-void getTerminalSize(int *x, int *y) {
+void printConsole(char *s) {
+   WriteConsole(hOut, s, strlen(s), NULL, NULL);
+}
+
+void vt100_getTerminalSize(int *x, int *y) {
   *x = 0;
   *y = 0;
 }
 
-int getCursorPosition(int *rows, int *cols) {
-  *rows = 0;
-  *cols = 0;
+int vt100_getCursorPosition(int *rows, int *cols) {
+  if (GetConsoleScreenBufferInfo(hOut, &screenBufferInfo)) {
+    *cols = screenBufferInfo.srWindow.Right - screenBufferInfo.srWindow.Left + 1;
+    *rows = screenBufferInfo.srWindow.Bottom - screenBufferInfo.srWindow.Top + 1;
+  } else {
+    *cols = 0;
+    *rows = 0;
+  }
   return 0;
 }
 
-void clearScreen(void) {
-  // VT100: Move cursor to 1,1 and clear screen from cursor
-  printf("\033[H\033[J");
-  fflush(stdout);
+void vt100_clearScreen(void) {
+  char buffer[] = "\033[H\033[J";
+  printConsole(buffer);
 }
 
-void setTextColor(long fg, long bg) {
-  // VT100: 3bit and 4 bit color
-  if (fg < 8) {
-    fg = 30 + fg;
+void vt100_setTextColor(long fg, long bg) {
+  char buffer[64];
+  // VT100: 8bit color mode
+  if (fg > 15) {
+    // if color  > 15 use index to address color
+    fg = fg & 0xFF;
   } else {
-    fg = 90 - 8 + fg;
+    // convert color to RGB
+    fg = convertColor(fg);
   }
-  if (bg < 8) {
-    bg = 40 + bg;
+
+  // Prevent setting bgcolor if COLOR is called with one parameter
+  if (bg != old_dev_bgcolor) {
+    old_dev_bgcolor = bg;
+    if (bg > 15) {
+      bg = bg & 0xFF;
+    } else {
+      bg = convertColor(bg);
+    }
+    snprintf(buffer, 64, "\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
+    printConsole(buffer);
   } else {
-    bg = 100 - 8 + bg;
+    snprintf(buffer, 64, "\033[38;5;%ldm", fg);
+    printConsole(buffer);
   }
-  printf("\033[%ld;%ldm", fg, bg);
-  fflush(stdout);
 }
 
-void setCursorPosition(int x, int y) {
-  printf("\033[%d;%dH", x, y);
-  fflush(stdout);
+void vt100_setCursorPosition(int cols, int rows) {
+  char buffer[64];
+  snprintf(buffer, 64, "\x1b[%d;%dH", rows, cols);
+  printConsole(buffer);
 }
 
-void setForegroundColor(long color) {
-  // VT100: 3bit and 4 bit color
-  if (color < 8) {
-    color = 30 + color;
-  } else {
-    color = 90 - 8 + color;
-  }
-  printf("\033[%ldm", color);
+void vt100_setDrawingColor(long color) {
+  dev_fgcolor = color;
+  vt100_setTextColor(dev_fgcolor, dev_bgcolor);
 }
 
-void refresh() {
+void vt100_moveCursorRight(int numCharacters) {
+  char buffer[64];
+  snprintf(buffer, 64, "\x1b[%dC", numCharacters);
+  printConsole(buffer);
+}
+
+void vt100_moveCursorLeft(int numCharacters) {
+  char buffer[64];
+  snprintf(buffer, 64, "\x1b[%dD", numCharacters);
+  printConsole(buffer);
+}
+
+void vt100_printInline(int x, int y, char *dest) {
+  char buffer[1024];
+
+  snprintf(buffer, 10124, "\x1b[s"); // Save cursor
+  printConsole(buffer);
+  vt100_setCursorPosition(y, x);
+
+  sprintf(buffer, "\x1b[K"); // Delete from cursor to end of line
+  printConsole(buffer);
+  printConsole(dest);
+  sprintf(buffer, "\x1b[u"); // Delete from cursor to end of line
+  printConsole(buffer);
+}
+
+void vt100_playBeep(void) {
+  char buffer[] = "\a";
+  printConsole(buffer);
+};
+
+void vt100_refresh() {
   osd_events(0);
 }
 
-void moveCursorRight(int numCharacters) {}
-void moveCursorLeft(int numCharacters) {}
-void printInline(int x, int y, char *dest) {}
-void playBeep(void) {}
+static void exit_handler(void) {
+  terminal_close();
+  if (count_tasks()) {
+    err_abnormal_exit();
+  }
+}
+
+void vt100_playAudio(const char *path) {};
+void vt100_playSound(int frq, int ms, int vol, int bgplay) {};
+void vt100_playClearSoundQueue(void) {};
+
+int vt100_cursorGetx(void) {
+  int rows = 0, cols = 0;
+  vt100_getCursorPosition(&rows, &cols);
+  return cols;
+}
+
+int vt100_cursorGety(void) {
+  int rows = 0, cols = 0;
+  vt100_getCursorPosition(&rows, &cols);
+  return rows;
+}
+
+int vt100_cursorTextHeight(const char *str) {
+  return 1;
+}
+
+int vt100_cursorTextWidth(const char *str) {
+  return 1;
+}
+
+int vt100_terminalEvents(int wait_flag, int *x, int *y) {
+  if (wait_flag) {
+    usleep(WAIT_INTERVAL * 1000);
+  }
+
+  vt100_getTerminalSize(x, y);    // XMAX, YMAX
+  readKey();                      // INKEY
+
+  return 0;
+}
 #endif
 
 
@@ -973,4 +1096,3 @@ void dev_show_page() {
 void dev_log_stack(const char *keyword, int type, int line) {}
 void v_create_form(var_p_t var) {}
 void v_create_window(var_p_t var) {}
-
