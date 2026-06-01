@@ -15,6 +15,7 @@
 #include "terminal.h"
 #include "input.h"
 #include "input_history.h"
+#include "wincontypes.h"
 
 int mouseX = 0;
 int mouseY = 0;
@@ -24,6 +25,52 @@ int mouseLastButtonY = -1;
 int mouseEvent = 0;
 
 InputHistory history;
+
+int vt100_getMouse(int code) {
+  switch(code) {
+    case 0:                 // new mouse event
+      if (mouseEvent && (mouseButton & 3) == 0) {
+        return (1);
+      }
+      mouseEvent = 0;
+      return (0);
+    case 1:                 // last mouse button down x
+      return mouseLastButtonX;
+    case 2:                 // last mouse button down y
+      return mouseLastButtonY;
+    case 3:                 // True if mouse left button is pressed
+      return ((mouseButton & 3) == 0);
+    case 4:                 // last mouse x if left button is pressed
+      if ((mouseButton & 3) == 0) {
+        return (mouseX);
+      }
+      return -1;
+    case 5:                 //last mouse y if left button is pressed
+      if  ((mouseButton & 3) == 0) {
+        return (mouseY);
+      }
+      return -1;
+    case 10:                // current mouse x position
+      return mouseX;
+    case 11:                // current mouse y pos
+      return mouseY;
+    case 12:                // true if the left mouse button is pressed
+      return ((mouseButton & 3) == 0);
+    case 13:                // true if the right mouse button is pressed
+      return ((mouseButton & 3) == 2);
+    case 14:                // true if the middle mouse button is pressed
+      return ((mouseButton & 3) == 1);
+  }
+  return (0);
+}
+
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
 
 #if USE_TERM_IO
 /**
@@ -36,14 +83,6 @@ int getch() {
     return (int)c;
   }
   return EOF;
-}
-
-void readKey(void) {
-  uint32_t c = vt100_inputReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
 }
 
 uint32_t vt100_inputReadKey(void) {
@@ -158,54 +197,210 @@ void vt100_setMouse(int enable) {
   }
 }
 
-int vt100_getMouse(int code) {
-  switch(code) {
-    case 0:                 // new mouse event
-      if (mouseEvent && (mouseButton & 3) == 0) {
-        return (1);
-      }
-      mouseEvent = 0;
-      return (0);
-    case 1:                 // last mouse button down x
-      return mouseLastButtonX;
-    case 2:                 // last mouse button down y
-      return mouseLastButtonY;
-    case 3:                 // True if mouse left button is pressed
-      return ((mouseButton & 3) == 0);
-    case 4:                 // last mouse x if left button is pressed
-      if ((mouseButton & 3) == 0) {
-        return (mouseX);
-      }
-      return -1;
-    case 5:                 //last mouse y if left button is pressed
-      if  ((mouseButton & 3) == 0) {
-        return (mouseY);
-      }
-      return -1;
-    case 10:                // current mouse x position
-      return mouseX;
-    case 11:                // current mouse y pos
-      return mouseY;
-    case 12:                // true if the left mouse button is pressed
-      return ((mouseButton & 3) == 0);
-    case 13:                // true if the right mouse button is pressed
-      return ((mouseButton & 3) == 2);
-    case 14:                // true if the middle mouse button is pressed
-      return ((mouseButton & 3) == 1);
-  }
-  return (0);
-}
-
 #elif defined (_Win32)
-void readKey(void) {
-  uint32_t c = vt100_inputReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
-}
+unsigned char seq[4];
+long unsigned int numberEvents;
+INPUT_RECORD inputRecord[14];
+extern HANDLE hIn;
+extern HANDLE hOut;
 
-uint32_t vt100_inputReadKey(void) {return 0;};
+uint32_t vt100_inputReadKey(void) {
+  PeekConsoleInput(hIn, inputRecord, 16, &numberEvents);
+  FlushConsoleInputBuffer(hIn);
+
+  if (numberEvents == 0) return 0;
+
+  /*printf("# %ld | 0: %d | 1: %c | 2: %c | 3: %c | 4: %c | 5: %c | 6: %c | 7: %c | 8: %c | 9: %c | 10: %c | 11: %c | 12: %c | 13: %c | 14: %c | 15: %c ", numberEvents,
+    inputRecord[0].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[1].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[2].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[3].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[4].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[5].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[6].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[7].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[8].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[9].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[10].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[11].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[12].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[13].Event.KeyEvent.uChar.AsciiChar
+  );*/
+
+
+  // normal key (1,2,3...A,B,C...+,#,..)  -> Sequence: 0 x1
+  if (numberEvents == 2) {
+    if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == EOF) return 0;
+    if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == 127) return SB_KEY_BACKSPACE;
+    return inputRecord[1].Event.KeyEvent.uChar.AsciiChar;
+  }
+
+  // shift + normal key (1,2,3...A,B,C...+,#,..)  -> Sequence: 0 x1 x2 0
+  if (numberEvents == 4) {
+    if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar == 0) {
+      if (inputRecord[3].Event.KeyEvent.uChar.AsciiChar == 0) {
+        if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == inputRecord[2].Event.KeyEvent.uChar.AsciiChar) return inputRecord[1].Event.KeyEvent.uChar.AsciiChar;
+      }
+    }
+    return 0;
+  }
+
+  /* SS3 sequences -> Sequence: ESC 0 x2 */
+  if (numberEvents == 3) {
+    if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar == '\x1b') {
+      if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == 'O') {
+        switch (inputRecord[2].Event.KeyEvent.uChar.AsciiChar) {
+          case 'H': return SB_KEY_HOME;
+          case 'F': return SB_KEY_END;
+          case 'P': return SB_KEY_F(1);
+          case 'Q': return SB_KEY_F(2);
+          case 'R': return SB_KEY_F(3);
+          case 'S': return SB_KEY_F(4);
+        }
+      }
+      return 0;
+    }
+  }
+
+  /* CSI sequences -> Sequence: ESC [ x2 x3 x4 x5  */
+  if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar != '\x1b') return 0;
+  if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar != '[') return 0;
+
+  if (numberEvents == 3) {
+    switch (inputRecord[2].Event.KeyEvent.uChar.AsciiChar) {
+      case 'A': return SB_KEY_UP;
+      case 'B': return SB_KEY_DOWN;
+      case 'C': return SB_KEY_RIGHT;
+      case 'D': return SB_KEY_LEFT;
+      case 'H': return SB_KEY_HOME;
+      case 'F': return SB_KEY_END;
+    }
+    return 0;
+  }
+
+  if (numberEvents == 4) {
+    if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar >= '0' && inputRecord[2].Event.KeyEvent.uChar.AsciiChar < '9') {
+      if (inputRecord[3].Event.KeyEvent.uChar.AsciiChar == '~') {
+        switch (inputRecord[2].Event.KeyEvent.uChar.AsciiChar) {
+          case '1': return SB_KEY_HOME;
+          case '2': return SB_KEY_INSERT;
+          case '3': return SB_KEY_DELETE;
+          case '4': return SB_KEY_END;
+          case '5': return SB_KEY_PGUP;
+          case '6': return SB_KEY_PGDN;
+          case '7': return SB_KEY_HOME;
+          case '8': return SB_KEY_END;
+        }
+      }
+    }
+    return 0;
+  }
+
+  if (numberEvents == 5) {
+    if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '1') {
+      if (inputRecord[4].Event.KeyEvent.uChar.AsciiChar == '~') {
+        switch (inputRecord[3].Event.KeyEvent.uChar.AsciiChar) {
+          case '5': return SB_KEY_F(5);
+          case '7': return SB_KEY_F(6);
+          case '8': return SB_KEY_F(7);
+          case '9': return SB_KEY_F(8);
+        }
+      }
+    } else if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '2') {
+        if (inputRecord[4].Event.KeyEvent.uChar.AsciiChar == '~') {
+          switch (inputRecord[3].Event.KeyEvent.uChar.AsciiChar) {
+            case '0': return SB_KEY_F(9);
+            case '1': return SB_KEY_F(10);
+            case '3': return SB_KEY_F(11);
+            case '4': return SB_KEY_F(12);
+          }
+        }
+    }
+    return 0;
+  }
+
+  if (numberEvents == 6) {
+    if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '1') {
+      if (inputRecord[3].Event.KeyEvent.uChar.AsciiChar == ';') {
+        if (inputRecord[4].Event.KeyEvent.uChar.AsciiChar == '5') {
+          switch (inputRecord[5].Event.KeyEvent.uChar.AsciiChar) {
+            case 'A': return SB_KEY_CTRL(SB_KEY_UP);
+            case 'B': return SB_KEY_CTRL(SB_KEY_DOWN);
+            case 'D': return SB_KEY_CTRL(SB_KEY_LEFT);
+            case 'C': return SB_KEY_CTRL(SB_KEY_RIGHT);
+          }
+        }
+      }
+      return 0;
+    }
+  }
+
+  // SGR 1006 for extended mouse position (>96 in x and y) and buttons
+  // Sequence if button is pressed:  ESC [ < Cb ; Cx ; Cy m
+  // Sequence if button is released: ESC [ < Cb ; Cx ; Cy M
+  // Cb Cy and Cy are one or multiple bytes long. Each byte is an ASCII integer ('0' to '9').
+  // 13 events allow [999,999] max mouse position.
+  if (numberEvents > 8) {
+    if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '<') {
+      DWORD ii = 3;
+      mouseX = 0;
+      mouseY = 0;
+      mouseButton = 0;
+      mouseEvent = 1;
+
+      // Mouse button
+      while (ii < numberEvents ) {
+        if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == ';') break;
+        mouseButton = 10*mouseButton + (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar - 48);
+        ii++;
+      }
+
+      // x position
+      ii++;
+      while (ii < numberEvents) {
+        if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == ';') break;
+        mouseX = 10*mouseX + (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar - 48);
+        ii++;
+      }
+
+      // y position
+      ii++;
+      while (ii < numberEvents) {
+        if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'm' || inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') break;
+        mouseY = 10*mouseY + (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar - 48);
+        ii++;
+      }
+
+      // button not pressed
+      if (mouseButton >= 35) {
+         mouseButton = 3;
+         return 0;
+      }
+
+      // remove motion indicator
+      if (mouseButton > 31) {
+        mouseButton -= 32;
+      }
+
+      // button is pressed
+      if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') {
+        // remove modifier keys
+        mouseButton = mouseButton & 11;
+        if (mouseButton == 0) {
+          // left button
+          mouseLastButtonX = mouseX;
+          mouseLastButtonY = mouseY;
+        }
+      } else {
+        // button was released
+        mouseButton = 3;
+      }
+    }
+    return 0;
+  }
+
+  return 0;
+}
 
 long int getCharacter(void) {
   return vt100_inputReadKey();
@@ -214,12 +409,11 @@ long int getCharacter(void) {
 void vt100_setMouse(int enable) {
   if (enable) {
     printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
+    printf("\x1b[?1006h");    // enable "All Motion Mouse Tracking"
   } else {
     printf("\x1b[?1003l");    // disable "All Motion Mouse Tracking"
   }
 }
-
-int vt100_getMouse(int code) {return 0;}
 
 #else
 uint32_t terminalReadKey(void) {
@@ -234,6 +428,8 @@ int getMouse(int code) {
   return 0;
 }
 #endif
+
+
 
 /**
  * return the character (multibyte charsets support)

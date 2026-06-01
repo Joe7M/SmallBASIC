@@ -29,6 +29,7 @@
 #include <signal.h>
 #elif defined(_Win32)
 #include <windows.h>
+#include <signal.h>
 #endif
 
 #define WAIT_INTERVAL 5
@@ -449,8 +450,7 @@ DWORD original_dwMode_Out;
 DWORD original_dwMode_In;
 
 void vt100_write(const char *str) {
-  long unsigned int charsWritten;
-  WriteConsole(hOut, str, strlen(str), &charsWritten, NULL);
+  WriteConsole(hOut, str, strlen(str), NULL, NULL);
 }
 
 void terminal_init(void) {
@@ -464,22 +464,15 @@ void terminal_init(void) {
     return;
   }
 
- /* if (!GetConsoleMode(hOut, &original_dwMode_Out)) {
-    p_write = default_write;
-    return;
-  }
   if (!GetConsoleMode(hIn, &original_dwMode_In)) {
     p_write = default_write;
     return;
   }
-*/
-  DWORD dwMode = 0;
-  dwMode = (ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT)
+
+  DWORD dwMode = (ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_WINDOW_INPUT)
     & ~ENABLE_ECHO_INPUT
     & ~ENABLE_INSERT_MODE
     & ~ENABLE_LINE_INPUT
-    & ~ENABLE_MOUSE_INPUT
-    & ~ENABLE_WINDOW_INPUT
     & ~ENABLE_QUICK_EDIT_MODE;
   if (!SetConsoleMode(hIn, dwMode)) {
     p_write = default_write;
@@ -491,8 +484,13 @@ void terminal_init(void) {
     p_write = default_write;
     return;
   }
-  dwMode = 0;
-  dwMode =  (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+
+  if (!GetConsoleMode(hOut, &original_dwMode_Out)) {
+    p_write = default_write;
+    return;
+  }
+
+  dwMode = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   if (!SetConsoleMode(hOut, dwMode)) {
     p_write = default_write;
     return;
@@ -502,23 +500,44 @@ void terminal_init(void) {
 }
 
 void terminal_close(void) {
-  GetConsoleMode(hOut, &original_dwMode_Out);
-  GetConsoleMode(hIn, &original_dwMode_In);
+  static volatile sig_atomic_t cleaned_up = 0;
+
+  SetConsoleMode(hOut, original_dwMode_Out);
+  SetConsoleMode(hIn, original_dwMode_In);
+
+  if (!cleaned_up) {
+    cleaned_up = 1;
+    int col = 0, row = 0;
+
+    // disable "All Motion Mouse Tracking" if somehow still enabled
+    WriteConsole(hOut, "\033[?1003l", 8, NULL, NULL);
+
+    // leave alt screen if somehow entered
+    // this messes up cursor position
+    vt100_getCursorPosition(&row, &col);
+    WriteConsole(hOut, "\033[?1049l", 8, NULL, NULL);
+    vt100_setCursorPosition(row, col);
+
+    WriteConsole(hOut, "\033[0m", 4, NULL, NULL);     // reset colors
+    WriteConsole(hOut, "\033[?25h", 6, NULL, NULL);   // restore cursor
+    WriteConsole(hOut, "\033[J", 3, NULL, NULL);      // clear screen from cursor down
+  }
 };
 
-void printConsole(char *s) {
-   WriteConsole(hOut, s, strlen(s), NULL, NULL);
-}
-
-void vt100_getTerminalSize(int *x, int *y) {
-  *x = 0;
-  *y = 0;
+void vt100_getTerminalSize(int *cols, int *rows) {
+  if (GetConsoleScreenBufferInfo(hOut, &screenBufferInfo)) {
+    *cols = screenBufferInfo.srWindow.Right - screenBufferInfo.srWindow.Left + 1;
+    *rows = screenBufferInfo.srWindow.Bottom - screenBufferInfo.srWindow.Top + 1;
+  } else {
+    *cols = 0;
+    *rows = 0;
+  }
 }
 
 int vt100_getCursorPosition(int *rows, int *cols) {
   if (GetConsoleScreenBufferInfo(hOut, &screenBufferInfo)) {
-    *cols = screenBufferInfo.srWindow.Right - screenBufferInfo.srWindow.Left + 1;
-    *rows = screenBufferInfo.srWindow.Bottom - screenBufferInfo.srWindow.Top + 1;
+    *cols = screenBufferInfo.dwCursorPosition.X + 1;
+    *rows = screenBufferInfo.dwCursorPosition.Y + 1;
   } else {
     *cols = 0;
     *rows = 0;
@@ -527,8 +546,7 @@ int vt100_getCursorPosition(int *rows, int *cols) {
 }
 
 void vt100_clearScreen(void) {
-  char buffer[] = "\033[H\033[J";
-  printConsole(buffer);
+  WriteConsole(hOut, "\033[H\033[J", 6, NULL, NULL);
 }
 
 void vt100_setTextColor(long fg, long bg) {
@@ -551,17 +569,17 @@ void vt100_setTextColor(long fg, long bg) {
       bg = convertColor(bg);
     }
     snprintf(buffer, 64, "\033[38;5;%ldm\033[48;5;%ldm", fg, bg);
-    printConsole(buffer);
+    vt100_write(buffer);
   } else {
     snprintf(buffer, 64, "\033[38;5;%ldm", fg);
-    printConsole(buffer);
+    vt100_write(buffer);
   }
 }
 
 void vt100_setCursorPosition(int cols, int rows) {
   char buffer[64];
-  snprintf(buffer, 64, "\x1b[%d;%dH", rows, cols);
-  printConsole(buffer);
+  snprintf(buffer, 64, "\x1b[%d;%dH", cols, rows);
+  vt100_write(buffer);
 }
 
 void vt100_setDrawingColor(long color) {
@@ -572,32 +590,25 @@ void vt100_setDrawingColor(long color) {
 void vt100_moveCursorRight(int numCharacters) {
   char buffer[64];
   snprintf(buffer, 64, "\x1b[%dC", numCharacters);
-  printConsole(buffer);
+  vt100_write(buffer);
 }
 
 void vt100_moveCursorLeft(int numCharacters) {
   char buffer[64];
   snprintf(buffer, 64, "\x1b[%dD", numCharacters);
-  printConsole(buffer);
+  vt100_write(buffer);
 }
 
 void vt100_printInline(int x, int y, char *dest) {
-  char buffer[1024];
-
-  snprintf(buffer, 10124, "\x1b[s"); // Save cursor
-  printConsole(buffer);
+  WriteConsole(hOut, "\x1b[s", 3, NULL, NULL);
   vt100_setCursorPosition(y, x);
-
-  sprintf(buffer, "\x1b[K"); // Delete from cursor to end of line
-  printConsole(buffer);
-  printConsole(dest);
-  sprintf(buffer, "\x1b[u"); // Delete from cursor to end of line
-  printConsole(buffer);
+  WriteConsole(hOut, "\x1b[K", 3, NULL, NULL);
+  vt100_write(dest);
+  WriteConsole(hOut, "\x1b[u", 3, NULL, NULL);
 }
 
 void vt100_playBeep(void) {
-  char buffer[] = "\a";
-  printConsole(buffer);
+  WriteConsole(hOut, "\a", 1, NULL, NULL);
 };
 
 void vt100_refresh() {
