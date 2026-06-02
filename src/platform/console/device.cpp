@@ -621,7 +621,6 @@ static void exit_handler(void) {
   if (count_tasks()) {
     err_abnormal_exit();
   }
-   printf("fgfgfgfg");
 }
 
 void vt100_playAudio(const char *path) {};
