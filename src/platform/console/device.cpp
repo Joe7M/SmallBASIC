@@ -502,15 +502,13 @@ void terminal_init(void) {
 void terminal_close(void) {
   static volatile sig_atomic_t cleaned_up = 0;
 
-  SetConsoleMode(hOut, original_dwMode_Out);
-  SetConsoleMode(hIn, original_dwMode_In);
-
   if (!cleaned_up) {
     cleaned_up = 1;
     int col = 0, row = 0;
 
-    // disable "All Motion Mouse Tracking" if somehow still enabled
+    // disable "All Motion Mouse Tracking" and SGR if somehow still enabled
     WriteConsole(hOut, "\033[?1003l", 8, NULL, NULL);
+    WriteConsole(hOut, "\033[?1006l", 8, NULL, NULL);
 
     // leave alt screen if somehow entered
     // this messes up cursor position
@@ -521,6 +519,9 @@ void terminal_close(void) {
     WriteConsole(hOut, "\033[0m", 4, NULL, NULL);     // reset colors
     WriteConsole(hOut, "\033[?25h", 6, NULL, NULL);   // restore cursor
     WriteConsole(hOut, "\033[J", 3, NULL, NULL);      // clear screen from cursor down
+
+    SetConsoleMode(hOut, original_dwMode_Out);
+    SetConsoleMode(hIn, original_dwMode_In);
   }
 };
 
@@ -620,6 +621,7 @@ static void exit_handler(void) {
   if (count_tasks()) {
     err_abnormal_exit();
   }
+   printf("fgfgfgfg");
 }
 
 void vt100_playAudio(const char *path) {};

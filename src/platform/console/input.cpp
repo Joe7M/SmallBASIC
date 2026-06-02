@@ -64,14 +64,6 @@ int vt100_getMouse(int code) {
   return (0);
 }
 
-void readKey(void) {
-  uint32_t c = vt100_inputReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
-}
-
 #if USE_TERM_IO
 /**
  * @brief Reads a single character from stdin in raw mode.
@@ -189,6 +181,14 @@ long int getCharacter(void) {
   return vt100_inputReadKey();
 }
 
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
+
 void vt100_setMouse(int enable) {
   if (enable) {
     printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
@@ -245,25 +245,28 @@ uint32_t vt100_inputReadKey(void) {
     return 0;
   }
 
+  // Escape sequences
+  if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar != '\x1b') return 0;
+
   /* SS3 sequences -> Sequence: ESC 0 x2 */
   if (numberEvents == 3) {
-    if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar == '\x1b') {
-      if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == 'O') {
-        switch (inputRecord[2].Event.KeyEvent.uChar.AsciiChar) {
-          case 'H': return SB_KEY_HOME;
-          case 'F': return SB_KEY_END;
-          case 'P': return SB_KEY_F(1);
-          case 'Q': return SB_KEY_F(2);
-          case 'R': return SB_KEY_F(3);
-          case 'S': return SB_KEY_F(4);
-        }
+    if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == 'O') {
+      switch (inputRecord[2].Event.KeyEvent.uChar.AsciiChar) {
+        case 'H': return SB_KEY_HOME;
+        case 'F': return SB_KEY_END;
+        case 'P': return SB_KEY_F(1);
+        case 'Q': return SB_KEY_F(2);
+        case 'R': return SB_KEY_F(3);
+        case 'S': return SB_KEY_F(4);
       }
-      return 0;
     }
+    return 0;
   }
 
-  /* CSI sequences -> Sequence: ESC [ x2 x3 x4 x5  */
-  if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar != '\x1b') return 0;
+  /* CSI and SGR sequences
+   * - ESC [ x2 x3 x4 x5
+   * - ESC [ < Cb ; Cx ; Cy m
+   * */
   if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar != '[') return 0;
 
   if (numberEvents == 3) {
@@ -371,23 +374,12 @@ uint32_t vt100_inputReadKey(void) {
         ii++;
       }
 
-      // button not pressed
-      if (mouseButton >= 35) {
-         mouseButton = 3;
-         return 0;
-      }
-
-      // remove motion indicator
-      if (mouseButton > 31) {
-        mouseButton -= 32;
-      }
-
       // button is pressed
-      if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') {
-        // remove modifier keys
+      if (mouseButton < 35 && inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') {
+        // remove modifier keys and motion indicator
         mouseButton = mouseButton & 11;
+        // left button pressed
         if (mouseButton == 0) {
-          // left button
           mouseLastButtonX = mouseX;
           mouseLastButtonY = mouseY;
         }
@@ -396,7 +388,6 @@ uint32_t vt100_inputReadKey(void) {
         mouseButton = 3;
       }
     }
-    return 0;
   }
 
   return 0;
@@ -406,12 +397,21 @@ long int getCharacter(void) {
   return vt100_inputReadKey();
 }
 
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
+
 void vt100_setMouse(int enable) {
   if (enable) {
-    printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
-    printf("\x1b[?1006h");    // enable "All Motion Mouse Tracking"
+    WriteConsole(hOut, "\x1b[?1003h", 8, NULL, NULL);    // enable "All Motion Mouse Tracking"
+    WriteConsole(hOut, "\x1b[?1006h", 8, NULL, NULL);    // enable SGR extended mouse mode
   } else {
-    printf("\x1b[?1003l");    // disable "All Motion Mouse Tracking"
+    WriteConsole(hOut, "\x1b[?1003l", 8, NULL, NULL);    // disable "All Motion Mouse Tracking"
+    WriteConsole(hOut, "\x1b[?1006l", 8, NULL, NULL);    // disable SGR extended mouse mode
   }
 }
 
