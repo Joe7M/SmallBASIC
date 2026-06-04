@@ -1,3 +1,4 @@
+print chr(27) + "[?25l"  ' Hide cursor
 color 15,0
 cls
 
@@ -20,11 +21,12 @@ while(INKEY != "q")
   print "| Left        | PEN(12) | "; format("###", Pen(12))
   print "| Right       | PEN(13) | "; format("###", Pen(13))
   print "| Middle      | PEN(14) | "; format("###", Pen(14))
-  
+
   print
-  
+
   delay(10)
   showpage
 wend
 
 pen off
+print chr(27) + "[?25h"  ' show cursor

@@ -28,7 +28,5 @@ void vt100_moveCursorLeft(int numCharacters);
 void vt100_moveCursorRight(int numCharacters);
 void vt100_printInline(int x, int y, char *dest);
 void readKey(void);
-void input_init(void);
-
 
 #endif /* TERMINAL_H */

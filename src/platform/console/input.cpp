@@ -64,6 +64,18 @@ int vt100_getMouse(int code) {
   return (0);
 }
 
+void readKey(void) {
+  uint32_t c = vt100_inputReadKey();
+  if (c > 0) {
+    dev_clrkb();
+    dev_pushkey(c);
+  }
+}
+
+long int getCharacter(void) {
+  return vt100_inputReadKey();
+}
+
 #if USE_TERM_IO
 /**
  * @brief Reads a single character from stdin in raw mode.
@@ -177,18 +189,6 @@ uint32_t vt100_inputReadKey(void) {
   return '\x1b';
 }
 
-long int getCharacter(void) {
-  return vt100_inputReadKey();
-}
-
-void readKey(void) {
-  uint32_t c = vt100_inputReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
-}
-
 void vt100_setMouse(int enable) {
   if (enable) {
     printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
@@ -198,19 +198,19 @@ void vt100_setMouse(int enable) {
 }
 
 #elif defined (_Win32)
-unsigned char seq[4];
 long unsigned int numberEvents;
-INPUT_RECORD inputRecord[14];
+INPUT_RECORD inputRecord[16];
 extern HANDLE hIn;
 extern HANDLE hOut;
 
 uint32_t vt100_inputReadKey(void) {
   PeekConsoleInput(hIn, inputRecord, 16, &numberEvents);
+  if (numberEvents == 0) return 0;
   FlushConsoleInputBuffer(hIn);
 
-  if (numberEvents == 0) return 0;
-
-  /*printf("# %ld | 0: %d | 1: %c | 2: %c | 3: %c | 4: %c | 5: %c | 6: %c | 7: %c | 8: %c | 9: %c | 10: %c | 11: %c | 12: %c | 13: %c | 14: %c | 15: %c ", numberEvents,
+  /*
+  printf("#:%ld|0:%d|1:%c|2:%c|3:%c|4:%c|5:%c|6:%c|7:%c|8:%c|9:%c|10:%c|11:%c|12:%c|13:%c|14:%c|15:%c|\n",
+    numberEvents,
     inputRecord[0].Event.KeyEvent.uChar.AsciiChar,
     inputRecord[1].Event.KeyEvent.uChar.AsciiChar,
     inputRecord[2].Event.KeyEvent.uChar.AsciiChar,
@@ -224,15 +224,19 @@ uint32_t vt100_inputReadKey(void) {
     inputRecord[10].Event.KeyEvent.uChar.AsciiChar,
     inputRecord[11].Event.KeyEvent.uChar.AsciiChar,
     inputRecord[12].Event.KeyEvent.uChar.AsciiChar,
-    inputRecord[13].Event.KeyEvent.uChar.AsciiChar
-  );*/
+    inputRecord[13].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[14].Event.KeyEvent.uChar.AsciiChar,
+    inputRecord[15].Event.KeyEvent.uChar.AsciiChar
+  );
+  */
 
-
-  // normal key (1,2,3...A,B,C...+,#,..)  -> Sequence: 0 x1
-  if (numberEvents == 2) {
-    if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == EOF) return 0;
-    if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == 127) return SB_KEY_BACKSPACE;
-    return inputRecord[1].Event.KeyEvent.uChar.AsciiChar;
+  // normal key (1,2,3...A,B,C...+,#,..)
+  // Sequence
+  // Mingw64 terminal -> x x
+  // windows terminal -> x
+  if (numberEvents <= 2) {
+    if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar == 127) return SB_KEY_BACKSPACE;
+    return inputRecord[0].Event.KeyEvent.uChar.AsciiChar;
   }
 
   // shift + normal key (1,2,3...A,B,C...+,#,..)  -> Sequence: 0 x1 x2 0
@@ -241,8 +245,8 @@ uint32_t vt100_inputReadKey(void) {
       if (inputRecord[3].Event.KeyEvent.uChar.AsciiChar == 0) {
         if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar == inputRecord[2].Event.KeyEvent.uChar.AsciiChar) return inputRecord[1].Event.KeyEvent.uChar.AsciiChar;
       }
+      return 0;
     }
-    return 0;
   }
 
   // Escape sequences
@@ -259,13 +263,13 @@ uint32_t vt100_inputReadKey(void) {
         case 'R': return SB_KEY_F(3);
         case 'S': return SB_KEY_F(4);
       }
+      return 0;
     }
-    return 0;
   }
 
   /* CSI and SGR sequences
    * - ESC [ x2 x3 x4 x5
-   * - ESC [ < Cb ; Cx ; Cy m
+   * - ESC [  < Cb  ; Cx ; Cy m
    * */
   if (inputRecord[1].Event.KeyEvent.uChar.AsciiChar != '[') return 0;
 
@@ -342,19 +346,19 @@ uint32_t vt100_inputReadKey(void) {
   // Sequence if button is pressed:  ESC [ < Cb ; Cx ; Cy m
   // Sequence if button is released: ESC [ < Cb ; Cx ; Cy M
   // Cb Cy and Cy are one or multiple bytes long. Each byte is an ASCII integer ('0' to '9').
-  // 13 events allow [999,999] max mouse position.
+  // 16 events allow [9999,9999] max mouse position.
   if (numberEvents > 8) {
     if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '<') {
       DWORD ii = 3;
+      int mouseButtonNew = 0;
       mouseX = 0;
       mouseY = 0;
-      mouseButton = 0;
       mouseEvent = 1;
 
       // Mouse button
       while (ii < numberEvents ) {
         if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == ';') break;
-        mouseButton = 10*mouseButton + (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar - 48);
+        mouseButtonNew = 10*mouseButtonNew + (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar - 48);
         ii++;
       }
 
@@ -375,13 +379,13 @@ uint32_t vt100_inputReadKey(void) {
       }
 
       // button is pressed
-      if (mouseButton < 35 && inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') {
+      if (inputRecord[ii].Event.KeyEvent.uChar.AsciiChar == 'M') {
         // remove modifier keys and motion indicator
-        mouseButton = mouseButton & 11;
-        // left button pressed
-        if (mouseButton == 0) {
+        mouseButtonNew = mouseButtonNew & 11;
+        if (mouseButtonNew < 3 && mouseButtonNew != mouseButton) {
           mouseLastButtonX = mouseX;
           mouseLastButtonY = mouseY;
+          mouseButton = mouseButtonNew;
         }
       } else {
         // button was released
@@ -391,18 +395,6 @@ uint32_t vt100_inputReadKey(void) {
   }
 
   return 0;
-}
-
-long int getCharacter(void) {
-  return vt100_inputReadKey();
-}
-
-void readKey(void) {
-  uint32_t c = vt100_inputReadKey();
-  if (c > 0) {
-    dev_clrkb();
-    dev_pushkey(c);
-  }
 }
 
 void vt100_setMouse(int enable) {
