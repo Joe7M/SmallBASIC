@@ -15,7 +15,9 @@
 #include "terminal.h"
 #include "input.h"
 #include "input_history.h"
+#if defined (_Win32)
 #include "wincontypes.h"
+#endif
 
 int mouseX = 0;
 int mouseY = 0;
@@ -99,84 +101,10 @@ uint32_t vt100_inputReadKey(void) {
   /* Escape sequence */
   unsigned char seq[5];
   if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-  if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+  if (read(STDIN_FILENO, &seq[1], 1) != 1) return 0;
 
-  if (seq[0] == '[') {
-    if (seq[1] >= '0' && seq[1] <= '9') {
-      /* 3- or 4-byte CSI sequence */
-      if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-
-      if (seq[2] == '~') {
-        switch (seq[1]) {
-          case '1': return SB_KEY_HOME;
-          case '2': return SB_KEY_INSERT;
-          case '3': return SB_KEY_DELETE;
-          case '4': return SB_KEY_END;
-          case '5': return SB_KEY_PGUP;
-          case '6': return SB_KEY_PGDN;
-          case '7': return SB_KEY_HOME;
-          case '8': return SB_KEY_END;
-        }
-      } else if (seq[2] == ';') {
-        // 5-byte sequence CTRL + arrow keys
-        if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
-        if (read(STDIN_FILENO, &seq[4], 1) != 1) return '\x1b';
-        if (seq[3] == '5') {
-          switch (seq[4]) {
-            case 'A': return SB_KEY_CTRL(SB_KEY_UP);
-            case 'B': return SB_KEY_CTRL(SB_KEY_DOWN);
-            case 'D': return SB_KEY_CTRL(SB_KEY_LEFT);
-            case 'C': return SB_KEY_CTRL(SB_KEY_RIGHT);
-          }
-        }
-      } else {
-        /* 4-byte CSI sequence (function keys) */
-        if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
-        if (seq[3] != '~') return '\x1b';
-
-        switch (seq[1]) {
-          case '1':
-            switch (seq[2]) {
-              case '5': return SB_KEY_F(5);
-              case '7': return SB_KEY_F(6);
-              case '8': return SB_KEY_F(7);
-              case '9': return SB_KEY_F(8);
-            }
-            break;
-          case '2':
-            switch (seq[2]) {
-              case '0': return SB_KEY_F(9);
-              case '1': return SB_KEY_F(10);
-              case '2': return SB_KEY_F(11);
-              case '4': return SB_KEY_F(12);
-            }
-        }
-      }
-    } else {
-      /* 2-byte CSI sequence */
-      switch (seq[1]) {
-        case 'A': return SB_KEY_UP;
-        case 'B': return SB_KEY_DOWN;
-        case 'C': return SB_KEY_RIGHT;
-        case 'D': return SB_KEY_LEFT;
-        case 'H': return SB_KEY_HOME;
-        case 'F': return SB_KEY_END;
-        case 'M':
-          /* X10 mouse event: button, x, y */
-          if (read(STDIN_FILENO, &seq, 3) != 3) return '\x1b';
-          mouseEvent = 1;
-          mouseX = seq[1] - 32;
-          mouseY = seq[2] - 32;
-          if ((mouseButton & 3) != 0 && (seq[0] & 3) == 0) {
-            mouseLastButtonX = mouseX;
-            mouseLastButtonY = mouseY;
-          }
-          mouseButton = seq[0];
-          return 0;
-      }
-    }
-  } else if (seq[0] == 'O') {
-    /* SS3 sequences */
+  /* SS3 sequences -> ESC 0 x1 */
+  if (seq[0] == 'O') {
     switch (seq[1]) {
       case 'H': return SB_KEY_HOME;
       case 'F': return SB_KEY_END;
@@ -185,15 +113,144 @@ uint32_t vt100_inputReadKey(void) {
       case 'R': return SB_KEY_F(3);
       case 'S': return SB_KEY_F(4);
     }
+    return 0;
   }
-  return '\x1b';
+  
+  /* CSI and SGR sequences
+   * - ESC [ x1 x2 x3 x4
+   * - ESC [  < Cb  ; Cx ; Cy m
+  */
+  if (seq[0] != '[') return 0;
+
+  
+  if (seq[1] >= '0' && seq[1] <= '9') {
+    /* 3- or 4-byte CSI sequence */
+    if (read(STDIN_FILENO, &seq[2], 1) != 1) return 0;
+
+    if (seq[2] == '~') {
+      switch (seq[1]) {
+        case '1': return SB_KEY_HOME;
+        case '2': return SB_KEY_INSERT;
+        case '3': return SB_KEY_DELETE;
+        case '4': return SB_KEY_END;
+        case '5': return SB_KEY_PGUP;
+        case '6': return SB_KEY_PGDN;
+        case '7': return SB_KEY_HOME;
+        case '8': return SB_KEY_END;
+      }
+    } else if (seq[2] == ';') {
+      // 5-byte sequence CTRL + arrow keys
+      if (read(STDIN_FILENO, &seq[3], 1) != 1) return 0;
+      if (read(STDIN_FILENO, &seq[4], 1) != 1) return 0;
+      if (seq[3] == '5') {
+        switch (seq[4]) {
+          case 'A': return SB_KEY_CTRL(SB_KEY_UP);
+          case 'B': return SB_KEY_CTRL(SB_KEY_DOWN);
+          case 'D': return SB_KEY_CTRL(SB_KEY_LEFT);
+          case 'C': return SB_KEY_CTRL(SB_KEY_RIGHT);
+        }
+      }
+    } else {
+      /* 4-byte CSI sequence (function keys) */
+      if (read(STDIN_FILENO, &seq[3], 1) != 1) return 0;
+      if (seq[3] != '~') return 0;
+
+      switch (seq[1]) {
+        case '1':
+          switch (seq[2]) {
+            case '5': return SB_KEY_F(5);
+            case '7': return SB_KEY_F(6);
+            case '8': return SB_KEY_F(7);
+            case '9': return SB_KEY_F(8);
+          }
+          break;
+        case '2':
+          switch (seq[2]) {
+            case '0': return SB_KEY_F(9);
+            case '1': return SB_KEY_F(10);
+            case '2': return SB_KEY_F(11);
+            case '4': return SB_KEY_F(12);
+          }
+      }
+    }
+  } else if (seq[1] == '<') {
+    // SGR 1006 for extended mouse position (>223 in x and y) and buttons
+    // Sequence if button is pressed:  ESC [ < Cb ; Cx ; Cy m
+    // Sequence if button is released: ESC [ < Cb ; Cx ; Cy M
+    // Cb, Cx and Cy are one or multiple bytes long. Each byte is an ASCII integer ('0' to '9').
+    int mouseButtonNew = 0;
+    mouseX = 0;
+    mouseY = 0;
+    mouseEvent = 1;
+
+    // Mouse button
+    while (1) {
+      if (read(STDIN_FILENO, &seq[2], 1) != 1) return 0;
+      if (seq[2] == ';') break;
+      mouseButtonNew = 10*mouseButtonNew + (seq[2] - 48);
+    }
+
+    // x position
+    while (1) {
+      if (read(STDIN_FILENO, &seq[2], 1) != 1) return 0;
+      if (seq[2] == ';') break;
+      mouseX = 10*mouseX + (seq[2] - 48);
+    }
+
+    // y position
+    while (1) {
+      if (read(STDIN_FILENO, &seq[2], 1) != 1) return 0;
+      if (seq[2] == 'm' || seq[2] == 'M') break;
+      mouseY = 10*mouseY + (seq[2] - 48);
+    }
+
+    // button is pressed
+    if (seq[2] == 'M') {
+      // remove modifier keys and motion indicator
+      mouseButtonNew = mouseButtonNew & 11;
+      if (mouseButtonNew < 3 && mouseButtonNew != mouseButton) {
+        mouseLastButtonX = mouseX;
+        mouseLastButtonY = mouseY;
+        mouseButton = mouseButtonNew;
+      }
+    } else {
+      // button was released
+      mouseButton = 3;
+    }
+  } else {
+    /* 2-byte CSI sequence */
+    switch (seq[1]) {
+      case 'A': return SB_KEY_UP;
+      case 'B': return SB_KEY_DOWN;
+      case 'C': return SB_KEY_RIGHT;
+      case 'D': return SB_KEY_LEFT;
+      case 'H': return SB_KEY_HOME;
+      case 'F': return SB_KEY_END;
+      /*case 'M':
+      *  // X10 mouse event: button, x, y
+      *  if (read(STDIN_FILENO, &seq, 3) != 3) return 0;
+      *  mouseEvent = 1;
+      *  mouseX = seq[1] - 32;
+      *  mouseY = seq[2] - 32;
+      *  if ((mouseButton & 3) != 0 && (seq[0] & 3) == 0) {
+      *    mouseLastButtonX = mouseX;
+      *    mouseLastButtonY = mouseY;
+      *  }
+      *  mouseButton = seq[0];
+      *  return 0;
+      */
+    }
+  }
+  return 0;
 }
 
 void vt100_setMouse(int enable) {
   if (enable) {
     printf("\x1b[?1003h");    // enable "All Motion Mouse Tracking"
+    printf("\x1b[?1006h");    // enable SGR extended mouse mode
   } else {
     printf("\x1b[?1003l");    // disable "All Motion Mouse Tracking"
+    printf("\x1b[?1006l");    // enable SGR extended mouse mode
   }
 }
 
