@@ -13,7 +13,6 @@
 #include "common/keymap.h"
 #include <stdio.h>
 #include "terminal.h"
-#include "input.h"
 #include "input_history.h"
 #if defined (_Win32)
 #include "wincontypes.h"
@@ -115,14 +114,13 @@ uint32_t vt100_inputReadKey(void) {
     }
     return 0;
   }
-  
+
   /* CSI and SGR sequences
    * - ESC [ x1 x2 x3 x4
    * - ESC [  < Cb  ; Cx ; Cy m
   */
   if (seq[0] != '[') return 0;
 
-  
   if (seq[1] >= '0' && seq[1] <= '9') {
     /* 3- or 4-byte CSI sequence */
     if (read(STDIN_FILENO, &seq[2], 1) != 1) return 0;
@@ -289,8 +287,8 @@ uint32_t vt100_inputReadKey(void) {
 
   // normal key (1,2,3...A,B,C...+,#,..)
   // Sequence
-  // Mingw64 terminal -> x x
-  // windows terminal -> x
+  // MSYS2 Mingw64 terminal -> x x
+  // CMD and Windows terminal -> x
   if (numberEvents <= 2) {
     if (inputRecord[0].Event.KeyEvent.uChar.AsciiChar == 127) return SB_KEY_BACKSPACE;
     return inputRecord[0].Event.KeyEvent.uChar.AsciiChar;
