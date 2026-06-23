@@ -16,8 +16,8 @@ sbasic_SOURCES =    \
   device.cpp \
   image.cpp \
   decomp.c \
-  graphics.cpp \
-  terminal.h
+  vt100.cpp \
+  vt100.h
 
 sbasic_LDADD = -L$(top_srcdir)/src/common -lsb_common @PACKAGE_LIBS@
 
