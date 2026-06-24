@@ -221,11 +221,18 @@ char *dev_gets(char *dest, int size) {
     case SB_KEY_UP:
       if (history.up(dest, size)) {
         pos = len = strlen(dest);
+        vt100_setCursorPosition(cursorY, cursorX);
+        vt100_write("\x1b[K");          // Delete from cursor to end of line
+        vt100_write(dest);
       }
       break;
     case SB_KEY_DOWN:
       if (history.down(dest, size)) {
         pos = len = strlen(dest);
+        pos = len = strlen(dest);
+        vt100_setCursorPosition(cursorY, cursorX);
+        vt100_write("\x1b[K");          // Delete from cursor to end of line
+        vt100_write(dest);
       }
       break;
     case SB_KEY_CTRL(SB_KEY_LEFT):
