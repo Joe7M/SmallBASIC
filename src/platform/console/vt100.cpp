@@ -281,6 +281,7 @@ void vt100_refresh(void) {
 #elif defined (_Win32)
 long unsigned int numberEvents;
 INPUT_RECORD inputRecord[16];
+extern CONSOLE_SCREEN_BUFFER_INFO screenBufferInfo;
 extern HANDLE hIn;
 extern HANDLE hOut;
 
@@ -408,7 +409,7 @@ uint32_t vt100_inputReadKey(void) {
   // SGR 1006 for extended mouse position (>96 in x and y) and buttons
   // Sequence if button is pressed:  ESC [ < Cb ; Cx ; Cy m
   // Sequence if button is released: ESC [ < Cb ; Cx ; Cy M
-  // Cb Cy and Cy are one or multiple bytes long. Each byte is an ASCII integer ('0' to '9').
+  // Cb Cx and Cy are one or multiple bytes long. Each byte is an ASCII integer ('0' to '9').
   // 16 events allow [9999,9999] max mouse position.
   if (numberEvents > 8) {
     if (inputRecord[2].Event.KeyEvent.uChar.AsciiChar == '<') {

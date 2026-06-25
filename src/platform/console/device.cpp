@@ -193,7 +193,7 @@ void terminal_getSize(int *x, int *y) {
  */
 void terminal_close() {
   static volatile sig_atomic_t cleaned_up = 0;
-  
+
   if (!cleaned_up) {
     cleaned_up = 1;
     int col = 0, row = 0;
@@ -201,7 +201,7 @@ void terminal_close() {
     // disable "All Motion Mouse Tracking" and SGR if somehow still enabled
     write(STDOUT_FILENO, "\033[?1003l", 8);
     write(STDOUT_FILENO, "\033[?1006l", 8);
-    
+
     // leave alt screen if somehow entered
     // this messes up cursor position
     vt100_getCursorPosition(&row, &col);
@@ -267,7 +267,7 @@ void terminal_init(void) {
   }
 }
 
-void terminal_GetSize(int *cols, int *rows) {
+void terminal_getSize(int *cols, int *rows) {
   if (GetConsoleScreenBufferInfo(hOut, &screenBufferInfo)) {
     *cols = screenBufferInfo.srWindow.Right - screenBufferInfo.srWindow.Left + 1;
     *rows = screenBufferInfo.srWindow.Bottom - screenBufferInfo.srWindow.Top + 1;
