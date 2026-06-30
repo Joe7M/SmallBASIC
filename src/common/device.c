@@ -21,8 +21,8 @@
  */
 int dev_init(int mode, int flags) {
   dev_initfs();
-  dev_fgcolor = 15;
-  dev_bgcolor = 0;
+  dev_fgcolor = 0;
+  dev_bgcolor = (os_graphics) ? 15 : 0;
   osd_devinit();
 
   // init the keyboard map

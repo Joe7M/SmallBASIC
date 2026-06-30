@@ -378,6 +378,7 @@ int osd_devinit() {
   }
 
 #if USE_TERM_IO || defined(_Win32)
+  extern uint8_t opt_vt100;
   if (isatty(STDOUT_FILENO) && opt_vt100) {
     if(!devinit) {
       terminal_init();

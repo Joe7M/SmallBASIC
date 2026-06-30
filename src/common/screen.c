@@ -177,12 +177,15 @@ int dev_textheight(const char *str) {
 // changes the current foreground color
 //
 void dev_setcolor(long color) {
-  /*if (color <= 15 && color >= 0) {
+#ifdef _CONSOLE
+  osd_setcolor(dev_fgcolor = color);
+#else
+  if (color <= 15 && color >= 0) {
     osd_setcolor(dev_fgcolor = color);
   } else if (color < 0) {
     osd_setcolor((dev_fgcolor = color));
-  }*/
-  osd_setcolor(dev_fgcolor = color);
+  }
+#endif
 }
 
 //

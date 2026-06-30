@@ -21,6 +21,8 @@ extern "C" {
   int exec_close(int tid);
 }
 
+uint8_t opt_vt100; /**< disable VT100 in console */
+
 void console_init();
 
 static struct option OPTIONS[] = {
