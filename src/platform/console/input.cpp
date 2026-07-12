@@ -11,6 +11,14 @@
 #include "common/device.h"
 #include "common/smbas.h"
 #include "common/keymap.h"
+#include <stdio.h>
+#include "input_history.h"
+#include "vt100.h"
+#if defined (_Win32)
+#include "wincontypes.h"
+#endif
+
+InputHistory history;
 
 /**
  * return the character (multibyte charsets support)
@@ -58,7 +66,7 @@ int dev_input_count_char(byte *buf, int pos) {
   if (os_charset != enc_utf8) {
     ch = buf[0];
     ch = ch << 8;
-    ch = ch + buf[1];
+    ch = ch + buf[pos];
     count = dev_input_char2str(ch, cstr);
   } else {
     count = 1;
@@ -134,6 +142,7 @@ int dev_input_remove_char(char *dest, int pos) {
   return 0;
 }
 
+#if USE_TERM_IO || defined (_Win32)
 /**
  * gets a string (INPUT)
  */
@@ -141,12 +150,16 @@ char *dev_gets(char *dest, int size) {
   long int ch = 0;
   uint16_t pos, len = 0;
   int replace_mode = 0;
+  int cursorX = 0;
+  int cursorY = 0;
+
+  vt100_getCursorPosition(&cursorY, &cursorX);
 
   *dest = '\0';
   pos = 0;
   do {
     len = strlen(dest);
-    ch = fgetc(stdin);
+    ch = vt100_inputReadKey();
     switch (ch) {
     case -1:
     case -2:
@@ -159,14 +172,19 @@ char *dev_gets(char *dest, int size) {
       break;
     case SB_KEY_HOME:
       pos = 0;
+      vt100_setCursorPosition(cursorY, cursorX);
       break;
     case SB_KEY_END:
       pos = len;
+      vt100_setCursorPosition(cursorY, cursorX + len);
       break;
     case SB_KEY_BACKSPACE:   // backspace
       if (pos > 0) {
+        int old_pos = pos;
         pos -= dev_input_remove_char(dest, pos - 1);
         len = strlen(dest);
+        vt100_printInline(cursorX, cursorY, dest);
+        vt100_moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
@@ -175,6 +193,7 @@ char *dev_gets(char *dest, int size) {
       if (pos < len) {
         dev_input_remove_char(dest, pos);
         len = strlen(dest);
+        vt100_printInline(cursorX, cursorY, dest);
       } else
         dev_beep();
       break;
@@ -183,17 +202,107 @@ char *dev_gets(char *dest, int size) {
       break;
     case SB_KEY_LEFT:
       if (pos > 0) {
+        int old_pos = pos;
         pos -= dev_input_count_char((byte *)dest, pos);
+        vt100_moveCursorLeft(old_pos - pos);
       } else {
         dev_beep();
       }
       break;
     case SB_KEY_RIGHT:
       if (pos < len) {
+        int old_pos = pos;
         pos += dev_input_count_char((byte *)dest, pos);
+        vt100_moveCursorRight(pos - old_pos);
       } else {
         dev_beep();
       }
+      break;
+    case SB_KEY_UP:
+      if (history.up(dest, size)) {
+        pos = len = strlen(dest);
+        vt100_setCursorPosition(cursorY, cursorX);
+        vt100_write("\x1b[K");          // Delete from cursor to end of line
+        vt100_write(dest);
+      }
+      break;
+    case SB_KEY_DOWN:
+      if (history.down(dest, size)) {
+        pos = len = strlen(dest);
+        pos = len = strlen(dest);
+        vt100_setCursorPosition(cursorY, cursorX);
+        vt100_write("\x1b[K");          // Delete from cursor to end of line
+        vt100_write(dest);
+      }
+      break;
+    case SB_KEY_CTRL(SB_KEY_LEFT):
+      // find previous word
+      if (pos > 0) {
+        int old_pos = pos;
+        while (pos > 0) {
+          pos--;
+          if (dest[pos] == ' ' && dest[pos - 1] != ' ') {
+            break;
+          }
+        }
+        vt100_moveCursorLeft(old_pos - pos);
+      }
+      break;
+    case SB_KEY_CTRL(SB_KEY_RIGHT):
+      // find next word
+      if (pos < len) {
+        int old_pos = pos;
+        while (pos < len) {
+          pos++;
+          if (dest[pos] == ' ' && dest[pos + 1] != ' ') {
+            pos++;
+            break;
+          }
+        }
+        vt100_moveCursorRight(pos - old_pos);
+      }
+      break;
+    default:
+      if ((ch & 0xFF00) != 0xFF00) {
+        // Not an hardware key
+        int old_pos = pos;
+        pos += dev_input_insert_char(ch, dest, pos, replace_mode);
+        vt100_printInline(cursorX, cursorY, dest);
+        vt100_moveCursorRight(pos - old_pos);
+      } else {
+        ch = 0;
+      }
+      // check the size
+      len = strlen(dest);
+      if (len >= (size - 2)) {
+        break;
+      }
+    }
+  } while (ch != '\n' && ch != '\r');
+
+  dest[len] = '\0';
+  history.push(dest);
+  printf("\n");
+  return dest;
+}
+#else
+/**
+ * gets a string (INPUT) without VT100
+ */
+char *dev_gets(char *dest, int size) {
+  long int ch = 0;
+  uint16_t pos, len = 0;
+  int replace_mode = 0;
+
+  *dest = '\0';
+  pos = 0;
+  do {
+    len = strlen(dest);
+    ch = fgetc(stdin);
+    switch (ch) {
+    case 0:
+    case 10:
+    case 13:                 // ignore
       break;
     default:
       if ((ch & 0xFF00) != 0xFF00) { // Not an hardware key
@@ -211,3 +320,4 @@ char *dev_gets(char *dest, int size) {
   dest[len] = '\0';
   return dest;
 }
+#endif
