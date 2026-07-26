@@ -18,6 +18,8 @@
 #include "wincontypes.h"
 #endif
 
+#define WAIT_INTERVAL 10
+
 InputHistory history;
 
 /**
@@ -169,6 +171,7 @@ char *dev_gets(char *dest, int size) {
     case 0:
     case 10:
     case 13:                 // ignore
+      usleep(WAIT_INTERVAL * 1000);
       break;
     case SB_KEY_HOME:
       pos = 0;
