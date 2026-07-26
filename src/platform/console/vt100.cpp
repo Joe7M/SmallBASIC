@@ -85,7 +85,7 @@ void vt100_write(const char *str) {
 }
 
 int getch() {
-  char c;
+  signed char c;
   if (read(STDIN_FILENO, &c, 1) == 1) {
     return (int)c;
   }
@@ -93,7 +93,7 @@ int getch() {
 }
 
 uint32_t vt100_inputReadKey(void) {
-  char c = getch();
+  signed char c = getch();
 
   if (c == EOF)  return 0;
   if (c == 127)  return SB_KEY_BACKSPACE;
@@ -248,7 +248,7 @@ int vt100_getCursorPosition(int *rows, int *cols) {
   // timeout is reached or the 'R' letter is printed
   startTime = dev_get_millisecond_count();
   while (i < sizeof(buf) - 1) {
-    if (dev_get_millisecond_count() - startTime > 50) {
+    if (dev_get_millisecond_count() - startTime > 100) {
       return -1;
     }
     if (read(STDIN_FILENO, &buf[i], 1) != 1) {
