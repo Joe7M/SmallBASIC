@@ -132,13 +132,24 @@ void console_init() {
 
 #if USE_TERM_IO
 struct winsize consoleSize;
-struct termios original_termios;
+struct termios raw_termios, original_termios;
 
 /**
- * @brief Handler for Ctrl+C
+ * @brief Handler for:
+ * - Ctrl+C
+ * - Switch back from suspended by Ctrl+Z
  */
 void handle_signal(int sig) {
-  brun_break();
+  switch (sig) {
+  case SIGCONT:
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw_termios);
+    break;
+  case SIGINT:
+  case SIGTERM:
+  case SIGHUP:
+    brun_break();
+    break;
+  }
 }
 
 /**
@@ -149,7 +160,7 @@ void terminal_init(void) {
   tcgetattr(STDIN_FILENO, &original_termios);
 
   // 2. Copy them for restoration later
-  struct termios raw = original_termios;
+  raw_termios = original_termios;
 
   // 3. Modify settings:
   //    Disable canonical mode (ICANON)
@@ -161,16 +172,16 @@ void terminal_init(void) {
   //    Disable parity checking (INPCK)
   //    Disable stripping of 8th bit of each input (ISTRIP)
   //    Set character size to 8 bit (CS8)
-  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-  raw.c_cflag |= (CS8);
-  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+  raw_termios.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw_termios.c_cflag |= (CS8);
+  raw_termios.c_lflag &= ~(ECHO | ICANON | IEXTEN);
 
   // 4. Set timeout and minimum number of bytes for read()
-  raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 0;
+  raw_termios.c_cc[VMIN] = 0;
+  raw_termios.c_cc[VTIME] = 0;
 
   // 5. Apply the new settings
-  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+  tcsetattr(STDIN_FILENO, TCSANOW, &raw_termios);
 
   // 6. Register signal handlers
   struct sigaction sa = {0};
@@ -180,6 +191,7 @@ void terminal_init(void) {
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
   sigaction(SIGHUP, &sa, NULL);
+  sigaction(SIGCONT, &sa, NULL);
 }
 
 void terminal_getSize(int *x, int *y) {
