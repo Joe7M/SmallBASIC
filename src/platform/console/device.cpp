@@ -187,7 +187,7 @@ void terminal_init(void) {
   struct sigaction sa = {0};
   sa.sa_handler = handle_signal;
   sigemptyset(&sa.sa_mask);
-  sa.sa_flags = SA_RESETHAND;
+  sa.sa_flags = 0;
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
   sigaction(SIGHUP, &sa, NULL);
