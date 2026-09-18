@@ -37,6 +37,7 @@
 #define EVENT_TYPE_KEY_PRESSED 11
 #define EVENT_TYPE_OPTIONS_BOX_BUTTON_CLICKED 41
 #define EVENT_TYPE_SCREEN_CHANGED 21
+#define EVENT_TYPE_SCREEN_CHANGING 22
 
 typedef int MAExtent;
 typedef intptr_t MAHandle;

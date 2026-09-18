@@ -1141,15 +1141,15 @@ void System::showMenu() {
         _systemMenu[index++] = MENU_PASTE;
         _systemMenu[index++] = MENU_SELECT_ALL;
       }
+      if (!isEditing() || opt_ide == IDE_EXTERNAL) {
+        items->add(new String(MENU_STR_KEYPAD));
+        _systemMenu[index++] = MENU_KEYPAD;
+      }
       if (hasBackMenu()) {
         items->add(new String(MENU_STR_BACK));
         _systemMenu[index++] = MENU_BACK;
       }
 #if defined(_SDL) || defined(_FLTK) || defined(_EMCC)
-      if (!isEditing() || opt_ide == IDE_EXTERNAL) {
-        items->add(new String(MENU_STR_KEYPAD));
-        _systemMenu[index++] = MENU_KEYPAD;
-      }
       if (!isEditing()) {
         bool controlMode = get_focus_edit()->getControlMode();
         sprintf(buffer, MENU_STR_CONTROL, (controlMode ? MENU_STR_ON : MENU_STR_OFF));

@@ -1,5 +1,14 @@
+2026-04-28 (12.34)
+	COMMON: implement plugin_refresh_id for variable lifecycle handling
+	COMMON: fix bug with comma in string assigned as local #283
+	COMMON: fix crash when missing () on module function call
+	CONSOLE: fix argument parsing to void adding switches to opt_command
+	ANDROID: Fix stability issue with chromebooks
+
 2026-02-26 (12.33)
 	COMMON: Fix build for FreeBSD
+	ANDROID: fix race with graphics drawing while pausing
+	ANDROID: fix back-button handling
 
 2026-01-23 (12.33)
 	SDL: Fix issue with flatpak release

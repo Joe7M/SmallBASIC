@@ -215,3 +215,7 @@ REM Bug: RTRIM trimed input string on the right side
 s1 = "   test   "
 s2 = rtrim(s1)
 if(s1 != "   test   ") then throw "err: RTRIM changed input string"
+
+REM bug with comma in string assigned as local
+local d="ab,"
+if d != "ab," then throw "err: comma bug"

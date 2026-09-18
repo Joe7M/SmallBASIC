@@ -1583,9 +1583,13 @@ int comp_getlist(char *source, char_p_t *args, int maxarg) {
   int square = 0;
   int round = 0;
   int brace = 0;
+  int quote = 0;
 
   while (*p && count < maxarg) {
     switch (*p) {
+    case '"':
+      quote = !quote;
+      break;
     case '[':
       square++;
       break;
@@ -1605,7 +1609,7 @@ int comp_getlist(char *source, char_p_t *args, int maxarg) {
       brace--;
       break;
     case ',':
-      if (!square && !round && !brace) {
+      if (!square && !round && !brace && !quote) {
         *p = '\0';
         SKIP_SPACES(ps);
         args[count] = ps;

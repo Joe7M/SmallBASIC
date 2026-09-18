@@ -221,7 +221,7 @@ extern "C" JNIEXPORT void JNICALL Java_net_sourceforge_smallbasic_MainActivity_o
     runtime->setTop(top);
   }
   if (runtime != nullptr && !runtime->isClosing() && runtime->isActive() && os_graphics) {
-    runtime->onResize(width, height, imeState);
+    runtime->onResize(width, height, imeState, false);
   }
 }
 
@@ -258,8 +258,8 @@ extern "C" JNIEXPORT void JNICALL Java_net_sourceforge_smallbasic_MainActivity_c
 
 void onContentRectChanged(ANativeActivity *activity, const ARect *rect) {
   logEntered();
-  runtime->onResize(rect->right, rect->bottom, 0);
-}
+  runtime->onResize(rect->right, rect->bottom - g_top, 0, true);
+ }
 
 jbyteArray newByteArray(JNIEnv *env, const char *str) {
   int size = (int)strlen(str);
@@ -618,7 +618,7 @@ void Runtime::loadConfig() {
   int height = getInteger("getWindowHeight");
   if (height !=  _graphics->getHeight()) {
     // height adjustment for bottom virtual navigation bar
-    onResize(_graphics->getWidth(), height, 0);
+    onResize(_graphics->getWidth(), height, 0, false);
   }
 
   _output->setTextColor(DEFAULT_FOREGROUND, DEFAULT_BACKGROUND);
@@ -951,6 +951,13 @@ MAEvent Runtime::processEvents(int waitFlag) {
 
 void Runtime::processEvent(MAEvent &event) {
   switch (event.type) {
+  case EVENT_TYPE_SCREEN_CHANGING:
+    if (_graphics->resize()) {
+      resize();
+      // trigger JDK side size recalculation
+      getBoolean("requestApplyInsets");
+    }
+    break;
   case EVENT_TYPE_SCREEN_CHANGED:
     if (_graphics->resize()) {
       resize();
@@ -1010,26 +1017,27 @@ void Runtime::onBack() {
   pthread_mutex_unlock(&_mutex);
 }
 
-void Runtime::onResize(int width, int height, int imeState) {
+void Runtime::onResize(int width, int height, int imeState, bool nativeResize) {
   logEntered();
+  ALooper_acquire(_app->looper);
   if (_graphics != nullptr) {
     int w = _graphics->getWidth();
     int h = _graphics->getHeight();
     if (w != width || h != height) {
       trace("Resized from %d %d to %d %d [ime=%d]", w, h, width, height, imeState);
-      ALooper_acquire(_app->looper);
       if (imeState != 0) {
         // in android 16+ when resize also knows whether the ime (keypad) is active
         _keypadActive = (imeState > 0);
       }
+      // remember the new dimensions for handling in the NDK thread
       _graphics->setSize(width, height);
       auto *maEvent = new MAEvent();
-      maEvent->type = EVENT_TYPE_SCREEN_CHANGED;
+      maEvent->type = nativeResize ? EVENT_TYPE_SCREEN_CHANGING : EVENT_TYPE_SCREEN_CHANGED;
       runtime->pushEvent(maEvent);
       ALooper_wake(_app->looper);
-      ALooper_release(_app->looper);
     }
   }
+  ALooper_release(_app->looper);
 }
 
 void Runtime::onRunCompleted() {

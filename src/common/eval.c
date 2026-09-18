@@ -786,7 +786,11 @@ static inline void eval_var(var_t *r, var_t *var_p) {
     v_set(r, var_p);
     break;
   case V_FUNC:
-    var_p->v.fn.cb(var_p, r);
+    if (!var_p->v.fn.cb) {
+      err_missing_sep();
+    } else {
+      var_p->v.fn.cb(var_p, r);
+    }
     break;
   case V_NIL:
     r->type = V_NIL;

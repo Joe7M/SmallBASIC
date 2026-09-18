@@ -8,6 +8,7 @@
 
 #include "config.h"
 #include <ctime>
+#include <cstdlib>
 #include "platform/android/jni/display.h"
 #include "ui/utils.h"
 #include "common/device.h"
@@ -32,7 +33,8 @@ Canvas::Canvas() :
 }
 
 Canvas::~Canvas() {
-  delete [] _pixels;
+  // must use free() with aligned_alloc
+  free(_pixels);
   delete _clip;
   _pixels = nullptr;
   _clip = nullptr;
@@ -40,17 +42,16 @@ Canvas::~Canvas() {
 
 bool Canvas::create(int w, int h) {
   logEntered();
-  bool result;
+
   _w = w;
   _h = h;
-  _pixels = new pixel_t[w * h];
-  if (_pixels) {
-    memset(_pixels, 0, w * h);
-    result = true;
-  } else {
-    result = false;
+  const size_t size = w * h * sizeof(pixel_t);
+  if (posix_memalign((void **)&_pixels, 32, size) != 0) {
+    _pixels = nullptr;
+    return false;
   }
-  return result;
+  memset(_pixels, 0, size);
+  return true;
 }
 
 void Canvas::drawRegion(Canvas *src, const MARect *srcRect, int destX, int destY) const {
@@ -115,7 +116,8 @@ void Canvas::setClip(int x, int y, int w, int h) {
 //
 // Graphics implementation
 //
-Graphics::Graphics(android_app *app) : ui::Graphics(),
+Graphics::Graphics(android_app *app) :
+  ui::Graphics(),
   _fontBuffer(nullptr),
   _fontBufferB(nullptr),
   _app(app),
@@ -171,14 +173,37 @@ void Graphics::redraw() {
         trace("Restore format %d", locked);
       }
       if (locked) {
-        auto *pixels = ((pixel_t *)buffer.bits) + (_top * buffer.stride);
-        int const width = MIN(_w, MIN(buffer.width, _screen->_w));
+        // Cast to uint8_t first to do byte-accurate pointer arithmetic,
+        // then cast back - avoids misalignment from stride * sizeof(pixel_t)
+        auto *base = static_cast<uint8_t *>(buffer.bits);
+        const size_t strideBytes = buffer.stride * sizeof(pixel_t);
+
+        int const width  = MIN(_w, MIN(buffer.width,  _screen->_w));
         int const height = MIN(_h, MIN(buffer.height, _screen->_h));
+        const size_t copyBytes = width * sizeof(pixel_t);
+
         for (int y = 0; y < height; y++) {
-          pixel_t  const* line = _screen->getLine(y);
-          memcpy(pixels, line, width * sizeof(pixel_t));
-          pixels = pixels + buffer.stride;
+          pixel_t const *line = _screen->getLine(y);
+          // Use byte pointer for dst so stride arithmetic is exact
+          void *dst = base + ((_top + y) * strideBytes);
+          memcpy(dst, line, copyBytes);
         }
+
+        // Fill title bar area above canvas
+        for (int y = 0; y < _top; y++) {
+          void *dst = base + (y * strideBytes);
+          memset(dst, 0, buffer.width * sizeof(pixel_t));
+        }
+
+        // Fill the navigation bar area below the canvas with black
+        int const remaining = buffer.height - (_top + height);
+        if (remaining > 0) {
+          for (int y = 0; y < remaining; y++) {
+            void *dst = base + ((_top + height + y) * strideBytes);
+            memset(dst, 0, buffer.width * sizeof(pixel_t));
+          }
+        }
+
         ANativeWindow_unlockAndPost(_app->window);
       }
     }

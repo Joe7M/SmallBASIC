@@ -243,12 +243,13 @@ void decompile(const char *path) {
 //
 bool process_options(int argc, char *argv[], char **runFile, bool *tmpFile, bool *iterate) {
   bool result = true;
+  int option_count = 1;
   while (result) {
     int option_index = 0;
     int c = getopt_long(argc, argv, "vkfximt:s:o:c:h::", OPTIONS, &option_index);
     if (c == -1 && !option_index) {
       // no more options
-      for (int i = 1; i < argc; i++) {
+      for (int i = option_count; i < argc; i++) {
         const char *s = argv[i];
         int len = strlen(s);
         if (*runFile == nullptr &&
@@ -264,6 +265,7 @@ bool process_options(int argc, char *argv[], char **runFile, bool *tmpFile, bool
       }
       break;
     }
+    option_count++;
     switch (c) {
     case 'h':
       if (optarg) {

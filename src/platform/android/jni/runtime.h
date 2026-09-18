@@ -74,7 +74,7 @@ struct Runtime : public System {
   void showKeypad(bool show);
   void onBack();
   void onPaused(bool paused) { if (_graphics != nullptr) {_graphics->onPaused(paused);} }
-  void onResize(int w, int h, int imeState);
+  void onResize(int w, int h, int imeState, bool nativeResize);
   void onRunCompleted() override;
   void onUnicodeChar(int ch);
   void loadConfig();

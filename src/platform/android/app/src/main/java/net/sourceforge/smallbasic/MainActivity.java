@@ -434,6 +434,14 @@ public class MainActivity extends NativeActivity {
     return rect.height();
   }
 
+  public boolean isInsetBasedOnResize() {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
+  }
+
+  public boolean isPredictiveBack() {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
+  }
+
   /**
    * Check if traditional 3-button navigation is enabled
    * @return true if 3-button navigation is active
@@ -447,14 +455,6 @@ public class MainActivity extends NativeActivity {
       }
     }
     return false;
-  }
-
-  public boolean isInsetBasedOnResize() {
-    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
-  }
-
-  public boolean isPredictiveBack() {
-    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
   }
 
   public boolean loadModules() {
@@ -587,6 +587,17 @@ public class MainActivity extends NativeActivity {
   public String request(String endPoint, String data, String apiKey) throws IOException {
     HttpConnection connection = new HttpConnection(endPoint, data, apiKey);
     return connection.invoke();
+  }
+
+  public boolean requestApplyInsets() {
+    final View view = getWindow().getDecorView();
+    view.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        ViewCompat.requestApplyInsets(view);
+      }
+    }, 100);
+    return true;
   }
 
   public boolean requestLocationUpdates() {
