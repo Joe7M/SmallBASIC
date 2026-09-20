@@ -1,3 +1,11 @@
+// This file is part of SmallBASIC
+//
+// Copyright(C) 2026 Joerg Siebenmorgen
+//
+// This program is distributed under the terms of the GPL v2.0 or later
+// Download the GNU Public License (GPL) from www.gnu.org
+//
+
 #include <Arduino.h>
 #include "common/device.h"
 #include "common/pproc.h"
